@@ -1,0 +1,1528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="A live clock for everything: countdowns to what happens next and clocks counting up for what is already happening.">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Every Second</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: editorial instrument — sticky masthead with a 60-tick second ruler, dense rows, clocks as the visual focus. */
+:root {
+  --bg: #FFFFFF; --bg2: #F5F5F5; --line: #E5E5E5; --fg: #000000; --fg2: #777777; --ink: #000000;
+  --live: #C8321E; --est: #8A6D1F; --warn: #A33B12; --ok: #2F6B3A;
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 6px;
+}
+:root { color-scheme: light }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 2px }
+.mono, .clk, .m-n, .tl-t { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.muted { color: var(--fg2) } .small { font-size: 12px }
+.wrap { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+
+/* masthead */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg) }
+.mast { border-bottom: 1px solid var(--line); background: var(--bg) }
+.mast-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding-block: 28px 18px; flex-wrap: wrap }
+.brand h1 { margin: 0; font-size: clamp(34px, 6vw, 64px); line-height: .9; letter-spacing: -0.045em; font-weight: 700 }
+.brand p { margin: 10px 0 0; color: var(--fg2); font-size: 15px; max-width: 46ch; text-wrap: balance }
+.now { text-align: right; min-width: 0 }
+.now .lbl { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg2) }
+#utcClock { font-family: var(--mono); font-size: clamp(26px, 3.4vw, 40px); font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums }
+#utcDate, #localClock { color: var(--fg2); font-size: 12px }
+#localClock { font-family: var(--mono) }
+.ruler { display: grid; grid-template-columns: repeat(60, 1fr); gap: 2px; height: 10px; align-items: end; margin-bottom: 14px }
+.ruler i { display: block; height: 4px; background: var(--line); border-radius: 1px; transition: background .2s }
+.ruler i:nth-child(5n+1) { height: 8px }
+.ruler i.past { background: var(--fg2) } .ruler i.cur { background: var(--ink); height: 10px }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line) }
+.bar-in { display: flex; gap: 12px; align-items: center; padding-block: 8px; flex-wrap: wrap }
+.tabs { display: flex; gap: 0; border: 1px solid var(--fg); border-radius: var(--r); overflow: hidden; flex: none }
+.tabs a { text-decoration: none; padding: 7px 14px; font-weight: 600; font-size: 12px; letter-spacing: .12em; text-transform: uppercase }
+.tabs a + a { border-left: 1px solid var(--fg) }
+.tabs a[aria-current="page"] { background: var(--fg); color: var(--bg) }
+.nav { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; min-width: 0 }
+.nav a { text-decoration: none; color: var(--fg2); padding: 6px 9px; border-radius: var(--r); font-size: 13px }
+.nav a:hover { color: var(--fg); background: var(--bg2) }
+.nav a[aria-current="page"] { color: var(--fg); font-weight: 600 }
+#topSearch { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: var(--r); padding: 0 8px; background: var(--bg2); min-width: 0; flex: 0 1 260px; color: var(--fg2) }
+#topSearch input { border: 0; background: transparent; padding: 7px 0; font: inherit; color: var(--fg); width: 100%; min-width: 0; outline: none }
+#topSearch:focus-within { border-color: var(--fg) }
+.btn { display: inline-flex; align-items: center; gap: 6px; font: 500 13px var(--sans); background: var(--fg); color: var(--bg); border: 1px solid var(--fg); border-radius: var(--r); padding: 7px 12px; cursor: pointer; text-decoration: none }
+.btn:hover { opacity: .85 } .btn.ghost { background: transparent; color: var(--fg); border-color: var(--line) } .btn.ghost:hover { border-color: var(--fg); opacity: 1 }
+.btn.sm { padding: 4px 8px; font-size: 12px } .btn[disabled] { opacity: .4; cursor: not-allowed }
+main { padding-block: 22px 60px; outline: none }
+main:focus, main:focus-visible { outline: none }
+[hidden] { display: none !important }
+
+/* sections */
+.sec { margin-top: 34px; min-width: 0 }
+.sec-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--fg); padding-bottom: 7px; margin-bottom: 4px }
+.sec-h h2 { margin: 0; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600 }
+.sec-h p { margin: 0; color: var(--fg2); font-size: 12px }
+.home-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 36px }
+.home-grid .sec { margin-top: 0 }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 36px }
+.empty-state { color: var(--fg2); padding: 16px 0; margin: 0 }
+.foot-note { color: var(--fg2); font-size: 12px; margin-top: 40px; max-width: 80ch }
+
+/* big cards */
+.bigs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-left: 1px solid var(--line) }
+.big { display: block; text-decoration: none; padding: 18px 18px 20px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); min-width: 0; transition: background .15s }
+.big:hover { background: var(--bg2) }
+.big-title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 8px 0 12px; text-wrap: balance }
+.big-clk { font-size: clamp(22px, 2.6vw, 32px); font-weight: 500; letter-spacing: -0.02em; line-height: 1.1 }
+.big-meta { color: var(--fg2); font-size: 12px; margin-top: 8px }
+
+/* rows */
+.list { display: flex; flex-direction: column }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 210px) 28px; gap: 16px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); position: relative }
+.row:has(> .r-clock + .fav) { grid-template-columns: minmax(0, 1fr) auto 28px }
+.row:not(:has(.fav)) { grid-template-columns: minmax(0, 1fr) auto }
+.r-main { min-width: 0 }
+.r-eyebrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.cat { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg2) }
+.r-title { display: block; font-weight: 600; font-size: 15px; text-decoration: none; margin-top: 2px; letter-spacing: -0.005em; overflow-wrap: anywhere }
+.r-title:hover { text-decoration: underline; text-underline-offset: 3px }
+.r-meta { display: flex; gap: 10px; flex-wrap: wrap; color: var(--fg2); font-size: 12px; margin-top: 1px }
+.r-clock { text-align: right }
+.clk { font-size: 18px; font-weight: 500; white-space: nowrap; letter-spacing: -0.01em }
+.clk .n { } .clk .u { color: var(--fg2); font-size: .72em; margin: 0 .38em 0 .06em }
+.clk .u:last-child { margin-right: 0 }
+.clk .pre { color: var(--fg2); font-size: .66em; font-family: var(--sans); text-transform: uppercase; letter-spacing: .08em; margin: 0 .5em }
+.clk .pre:first-child { margin-left: 0 } .clk .w { font-family: var(--sans); font-weight: 600 }
+.clk .tilde { color: var(--est); margin-right: .1em }
+.clk.sm { font-size: 13px }
+.clk-note { font-size: 11px; color: var(--fg2); min-height: 1em }
+.r-side { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; color: var(--fg2); min-width: 0 }
+.r-side .src { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.fav { background: none; border: 0; color: var(--fg2); cursor: pointer; padding: 4px; border-radius: var(--r); display: grid; place-items: center }
+.fav:hover, .fav.on { color: var(--ink) }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--fg2) }
+.pill.p-live { background: var(--ink); color: var(--bg); border-color: var(--ink) }
+.pill.p-ongoing { background: var(--bg2); color: var(--fg) }
+.pill.p-completed { border-style: dashed }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); animation: pulse 1.6s ease-in-out infinite }
+@keyframes pulse { 50% { opacity: .25 } }
+.ver { font-size: 10px; letter-spacing: .06em; font-weight: 600; text-transform: uppercase }
+.v-ok { color: var(--ok) } .v-est { color: var(--est) } .v-com { color: var(--fg2) } .v-warn { color: var(--warn) }
+/* state treatments */
+.st-live .clk, .big.st-live .big-clk { color: var(--ink) }
+.st-ongoing .clk .n { color: var(--ink) }
+.st-completed .r-title, .st-ended .r-title, .st-completed .clk, .st-ended .clk, .st-awaiting .clk { color: var(--fg2) }
+.st-cancelled .r-title, .st-cancelled .big-title { text-decoration: line-through; color: var(--fg2) }
+.st-postponed .clk .w { color: var(--warn) }
+.st-unconfirmed .clk .w, .st-today .clk .w { font-size: .82em }
+.is-est .clk { text-decoration: underline dashed var(--est); text-underline-offset: 5px; text-decoration-thickness: 1px }
+.is-unv { border-left: 2px dotted var(--fg2); padding-left: 10px }
+.is-conf .r-title::after { content: " · sources disagree"; color: var(--warn); font-weight: 500; font-size: 12px }
+
+/* tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); border-left: 1px solid var(--line) }
+.tile { display: block; text-decoration: none; padding: 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); min-width: 0 }
+a.tile:hover { background: var(--bg2) }
+.t-label { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg2) }
+.t-title { font-weight: 600; margin: 4px 0 8px; line-height: 1.3; min-height: 2.6em }
+.tile .clk { font-size: 16px } .t-empty { color: var(--fg2); font-size: 12px; margin-top: 6px }
+
+/* timeline */
+.tl { list-style: none; margin: 0; padding: 0; position: relative }
+.tl li { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: baseline }
+.tl-t { color: var(--fg2); font-size: 12px }
+.tl-l { text-decoration: none; font-weight: 500; min-width: 0 } a.tl-l:hover { text-decoration: underline }
+.tl-c { color: var(--fg2); font-weight: 400; font-size: 12px; margin-left: 8px }
+.tl-now { border-bottom: 1px solid var(--ink) !important; } .tl-now .tl-t, .tl-now .tl-l { color: var(--ink); font-weight: 600 }
+.tl .st-completed .tl-l, .tl .past .tl-l { color: var(--fg2) }
+.tl.small li { grid-template-columns: 110px minmax(0, 1fr) auto }
+
+/* feed / explore */
+.feed-head h1 { margin: 0; font-size: clamp(26px, 3.5vw, 38px); letter-spacing: -0.03em; font-weight: 700 }
+.feed-head p { color: var(--fg2); max-width: 70ch; margin: 6px 0 0 }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 }
+.chip { font: 500 12px var(--sans); background: transparent; color: var(--fg2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; cursor: pointer }
+.chip:hover { color: var(--fg); border-color: var(--fg2) } .chip.on { background: var(--fg); color: var(--bg); border-color: var(--fg) }
+.bigsearch { display: flex; gap: 8px; align-items: center; border: 1px solid var(--fg); border-radius: var(--r); padding: 4px 4px 4px 12px; margin-top: 18px; color: var(--fg2) }
+.bigsearch input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: 400 17px var(--sans); padding: 8px 0 }
+.examples { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px }
+.ex { background: var(--bg2); border: 0; border-radius: var(--r); padding: 4px 9px; font: 12px var(--sans); color: var(--fg2); cursor: pointer } .ex:hover { color: var(--fg) }
+.filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 18px; padding: 14px; background: var(--bg2); border-radius: var(--r); align-items: end }
+.filters label, .settings label, .form label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg2); min-width: 0 }
+select, input, textarea { font: 14px var(--sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; min-width: 0; max-width: 100% }
+select:focus, input:focus, textarea:focus { border-color: var(--fg); outline: none }
+.hrs { display: flex; gap: 4px; align-items: center } .hrs select { flex: 1 }
+.browse { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 14px } .b-label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg2); margin-right: 4px }
+.count { color: var(--fg2); font-size: 12px; margin: 18px 0 0; border-bottom: 1px solid var(--fg); padding-bottom: 6px }
+.answer { margin-top: 18px; border: 1px solid var(--fg); border-radius: var(--r); padding: 4px 14px } .a-label { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg2); padding-top: 8px }
+.answer .row { border-bottom: 0 }
+
+/* detail */
+.crumbs { font-size: 12px; color: var(--fg2) } .crumbs a { color: var(--fg2) }
+.d-top { padding: 18px 0 26px; border-bottom: 1px solid var(--fg) }
+.d-top h1 { font-size: clamp(28px, 4.6vw, 52px); letter-spacing: -0.035em; line-height: 1.02; margin: 10px 0 8px; text-wrap: balance; max-width: 22ch }
+.lede { color: var(--fg2); font-size: 16px; margin: 0 0 22px; max-width: 65ch }
+.clk.huge { font-size: clamp(34px, 7.4vw, 88px); font-weight: 500; letter-spacing: -0.04em; line-height: 1; white-space: normal }
+.clk.huge .u { font-size: .42em } .clk.huge .pre { font-size: .22em }
+.end-note { color: var(--fg2); margin: 14px 0 0 }
+.d-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px }
+.sharebox { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap } .sharebox input { flex: 1 1 320px; font-family: var(--mono); font-size: 12px }
+.d-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 40px; margin-top: 8px }
+.d-body h2 { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; margin: 28px 0 6px; border-bottom: 1px solid var(--line); padding-bottom: 6px }
+.d-body p { max-width: 65ch; font-size: 15px }
+.d-facts dl { margin: 22px 0 0; display: grid; grid-template-columns: 1fr; gap: 0 }
+.d-facts dt { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg2); margin-top: 12px }
+.d-facts dd { margin: 2px 0 0; overflow-wrap: anywhere }
+.srcs { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px }
+.cmp { padding-left: 18px } .cmp li { margin: 4px 0 }
+.eds { list-style: none; padding: 0; margin: 0 } .eds li { display: flex; gap: 14px; flex-wrap: wrap; padding: 7px 0; border-bottom: 1px solid var(--line) } .eds li span:first-child { min-width: 150px; color: var(--fg2) }
+
+/* timeline explorer */
+.tl-ctrl { margin-top: 18px; padding: 16px; background: var(--bg2); border-radius: var(--r) }
+.tl-ctrl input[type=range] { width: 100%; accent-color: var(--fg); padding: 0; border: 0; background: transparent }
+.tl-sel { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 15px }
+.inline { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--fg2); margin-left: auto }
+.day-h { font-size: 13px; margin: 24px 0 2px; padding-bottom: 6px; border-bottom: 1px solid var(--fg) }
+.mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 24px }
+.mini a { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); text-decoration: none; min-width: 0 }
+.mini a span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .mini a:hover span:first-child { text-decoration: underline }
+
+/* forms / admin */
+.form { display: flex; flex-direction: column; gap: 12px; max-width: 640px; margin-top: 18px }
+.form .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
+.form textarea { resize: vertical } .form .btn { align-self: flex-start }
+.notice { background: var(--bg2); border-left: 2px solid var(--fg); padding: 10px 14px; margin-top: 16px; max-width: 70ch }
+.inline-form { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap } .inline-form input { flex: 1 1 240px }
+.settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 14px }
+.metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); border-left: 1px solid var(--line); border-top: 1px solid var(--line); margin-top: 20px }
+.metric { padding: 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line) }
+.m-n { font-size: 30px; font-weight: 500; letter-spacing: -0.03em; line-height: 1 } .m-l { font-size: 12px; margin-top: 6px } .m-s { font-size: 11px; color: var(--fg2) }
+.tablewrap { overflow-x: auto } .tbl { border-collapse: collapse; width: 100%; font-size: 12.5px; min-width: 860px }
+.tbl th { text-align: left; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg2); font-weight: 600; padding: 8px 8px 6px 0; border-bottom: 1px solid var(--line) }
+.tbl td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top }
+.tbl.log { min-width: 620px } .tbl tr.nc td { color: var(--fg2) } .tbl tr.nc td strong { color: var(--fg) }
+.hs { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase } .hs-ok { color: var(--ok) } .hs-error { color: var(--warn) } .hs-nc, .hs-disabled, .hs-none { color: var(--fg2) }
+.queue .q-item { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap }
+.q-act { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-start }
+.tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px }
+.small-form { margin-top: 10px } .small-form h3 { margin: 0; font-size: 14px } .msg { font-size: 12px; color: var(--fg2) }
+.subs { padding-left: 18px } .subs li { margin: 5px 0 }
+.tests { list-style: none; padding: 0; margin: 8px 0 0; columns: 2; column-gap: 32px } .tests li { padding: 3px 0; break-inside: avoid } .tests .ok .mono { color: var(--ok) } .tests .bad .mono { color: var(--warn); font-weight: 700 }
+
+/* toasts */
+#toasts { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 8px; z-index: 20; max-width: min(360px, calc(100vw - 32px)) }
+.toast { background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: var(--r); font-size: 13px; animation: tin .25s ease-out; transition: opacity .5s }
+.toast a { color: inherit } .toast.out { opacity: 0 }
+@keyframes tin { from { transform: translateY(8px); opacity: 0 } }
+.foot { border-top: 1px solid var(--line); color: var(--fg2); font-size: 12px; padding-block: 20px 30px }
+
+@media (max-width: 1000px) {
+  .home-grid, .two, .d-grid { grid-template-columns: minmax(0, 1fr) }
+  .row { grid-template-columns: minmax(0, 1fr) auto 28px }
+  .row .r-side { display: none }
+}
+@media (max-width: 640px) {
+  .bigs { grid-template-columns: minmax(0, 1fr) }
+  .mast-top { padding-block: 20px 12px } .now { text-align: left }
+  .row, .row:has(> .r-clock + .fav) { grid-template-columns: minmax(0, 1fr) 28px; gap: 4px 10px }
+  .row .r-clock { grid-column: 1; grid-row: 2; text-align: left }
+  .row .fav { grid-column: 2; grid-row: 1 / span 2 }
+  .row:not(:has(.fav)) { grid-template-columns: minmax(0, 1fr) }
+  .row:not(:has(.fav)) .r-clock { grid-column: 1 }
+  .tl li { grid-template-columns: 56px minmax(0, 1fr) } .tl li .clk { grid-column: 2 }
+  #topSearch { flex: 1 1 100% }
+  .tabs { flex: 1 1 100% } .tabs a { flex: 1; text-align: center }
+  .nav { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none } .nav a { white-space: nowrap } .form .row2 { grid-template-columns: 1fr } .tests { columns: 1 }
+  .ruler { gap: 1px }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important } }
+</style>
+
+<header class="mast">
+  <div class="wrap">
+    <div class="mast-top">
+      <div class="brand"><h1>EVERY SECOND</h1><p>Everything that happens. Everything that's happening. Everything that comes next.</p></div>
+      <div class="now" aria-live="off"><div class="lbl">Coordinated Universal Time</div><div id="utcClock">--:--:--</div><div id="utcDate">&nbsp;</div><div id="localClock">&nbsp;</div></div>
+    </div>
+    <div class="ruler" id="ruler" aria-hidden="true"></div>
+  </div>
+</header>
+<div class="bar"><div class="wrap bar-in">
+  <nav class="tabs" aria-label="Primary"><a href="#upnext" data-nav="upnext">Up next</a><a href="#inprogress" data-nav="inprogress">In progress</a></nav>
+  <nav class="nav" aria-label="Sections"><a href="#home" data-nav="home">Home</a><a href="#explore" data-nav="explore">Explore</a><a href="#timeline" data-nav="timeline">Timeline</a><a href="#sixty" data-nav="sixty">60 seconds</a><a href="#saved" data-nav="saved">Saved</a><a href="#submit" data-nav="submit">Submit</a><a href="#admin" data-nav="admin">Admin</a></nav>
+  <form id="topSearch" role="search"><label for="q" class="sr">Search events</label><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><input id="q" type="search" placeholder="Search or ask…" autocomplete="off"></form>
+  <button class="btn" data-random type="button"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 7h3.5c2 0 3.2 1 4.3 2.7l1.4 2.6c1 1.7 2.3 2.7 4.3 2.7H20M17 12l3 3-3 3M4 17h3.5c1.4 0 2.4-.5 3.2-1.3M13.4 8.3C14.2 7.5 15.2 7 16.5 7H20M17 4l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>What happens next?</button>
+</div></div>
+<main id="main" class="wrap" tabindex="-1"><p class="empty-state">Loading clocks…</p></main>
+<footer class="foot"><div class="wrap">Every clock is calculated from a stored UTC timestamp and shown in your time zone. Labels such as VERIFIED, ESTIMATED and COMMUNITY SUBMITTED come from the data, never at random. Sources are linked on every event page.</div></footer>
+<div id="toasts" aria-live="polite"></div>
+<script>
+/* ===== EVERY SECOND · core (pure functions, no DOM) ===== */
+const MS = { s: 1e3, m: 6e4, h: 36e5, d: 864e5 };
+const pad = (n, w = 2) => String(n).padStart(w, '0');
+const D2R = Math.PI / 180;
+const sinD = x => Math.sin(x * D2R), cosD = x => Math.cos(x * D2R);
+
+/* ---------- time zones (DST-safe via Intl) ---------- */
+const _fmtCache = {};
+function partsFmt(tz) {
+  return _fmtCache[tz] || (_fmtCache[tz] = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short'
+  }));
+}
+function tzParts(t, tz) {
+  const p = {};
+  for (const x of partsFmt(tz).formatToParts(new Date(t))) p[x.type] = x.value;
+  return { y: +p.year, m: +p.month, d: +p.day, h: +p.hour % 24, mi: +p.minute, s: +p.second, wd: p.weekday };
+}
+function tzOffset(t, tz) {
+  const p = tzParts(t, tz);
+  return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(t / 1000) * 1000;
+}
+/** Wall-clock time in a zone -> UTC ms. Handles DST transitions. */
+function zonedToUtc(y, mo, d, h = 0, mi = 0, s = 0, tz = 'UTC') {
+  const guess = Date.UTC(y, mo - 1, d, h, mi, s);
+  const o1 = tzOffset(guess, tz);
+  let t = guess - o1;
+  const o2 = tzOffset(t, tz);
+  if (o2 !== o1) t = guess - o2;
+  return t;
+}
+const dayNum = (y, m, d) => Math.round(Date.UTC(y, m - 1, d) / MS.d);
+function daysUntilInTz(now, y, m, d, tz) {
+  const p = tzParts(now, tz);
+  return dayNum(y, m, d) - dayNum(p.y, p.m, p.d);
+}
+const isLeap = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+/* ---------- durations (calendar-aware years, leap-safe) ---------- */
+function addYearsClamp(t, n) {
+  const d = new Date(t), Y = d.getUTCFullYear() + n, M = d.getUTCMonth();
+  const last = new Date(Date.UTC(Y, M + 1, 0)).getUTCDate();
+  const x = new Date(0);
+  x.setUTCFullYear(Y, M, Math.min(d.getUTCDate(), last));
+  x.setUTCHours(d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds());
+  return x.getTime();
+}
+function calDiff(a, b) {
+  if (b < a) [a, b] = [b, a];
+  let y = new Date(b).getUTCFullYear() - new Date(a).getUTCFullYear();
+  while (y > 0 && addYearsClamp(a, y) > b) y--;
+  let r = b - addYearsClamp(a, y);
+  const d = Math.floor(r / MS.d); r -= d * MS.d;
+  const h = Math.floor(r / MS.h); r -= h * MS.h;
+  const m = Math.floor(r / MS.m); r -= m * MS.m;
+  return { y, d, h, m, s: Math.floor(r / 1000) };
+}
+/** Under a day: 05h 21m 09s · days: 12d 05h 21m 09s · years: 18y 142d 05h 21m 09s */
+function fmtParts(p, unit = 's') {
+  const seg = [];
+  if (p.y) seg.push([p.y, 'y']);
+  if (p.y || p.d) seg.push([p.y ? p.d : pad(p.d), 'd']);
+  if (unit === 'd') return seg.length ? seg : [[0, 'd']];
+  seg.push([pad(p.h), 'h']);
+  if (unit === 'h') return seg;
+  seg.push([pad(p.m), 'm']);
+  if (unit === 'm') return seg;
+  seg.push([pad(p.s), 's']);
+  return seg;
+}
+const fmtPlain = (a, b, unit) => fmtParts(calDiff(a, b), unit).map(([n, u]) => n + u).join(' ');
+
+/* ---------- astronomy: Meeus moon phases (±~2 min) ---------- */
+const DELTA_T = 69 * 1000; // TT - UTC, approx for 2020s
+const jdToMs = jd => (jd - 2440587.5) * MS.d;
+const msToJd = t => t / MS.d + 2440587.5;
+function moonPhaseJDE(k, full) {
+  const T = k / 1236.85, T2 = T * T, T3 = T2 * T, T4 = T3 * T;
+  let jde = 2451550.09766 + 29.530588861 * k + 0.00015437 * T2 - 0.00000015 * T3 + 0.00000000073 * T4;
+  const E = 1 - 0.002516 * T - 0.0000074 * T2;
+  const M = 2.5534 + 29.1053567 * k - 0.0000014 * T2 - 0.00000011 * T3;
+  const Mp = 201.5643 + 385.81693528 * k + 0.0107582 * T2 + 0.00001238 * T3 - 0.000000058 * T4;
+  const F = 160.7108 + 390.67050284 * k - 0.0016118 * T2 - 0.00000227 * T3 + 0.000000011 * T4;
+  const Om = 124.7746 - 1.56375588 * k + 0.0020672 * T2 + 0.00000215 * T3;
+  const c = full ? [-0.40614, 0.17302, 0.01614, 0.01043, 0.00734, -0.00515, 0.00209] : [-0.4072, 0.17241, 0.01608, 0.01039, 0.00739, -0.00514, 0.00208];
+  jde += c[0] * sinD(Mp) + c[1] * E * sinD(M) + c[2] * sinD(2 * Mp) + c[3] * sinD(2 * F)
+    + c[4] * E * sinD(Mp - M) + c[5] * E * sinD(Mp + M) + c[6] * E * E * sinD(2 * M)
+    - 0.00111 * sinD(Mp - 2 * F) - 0.00057 * sinD(Mp + 2 * F) + 0.00056 * E * sinD(2 * Mp + M)
+    - 0.00042 * sinD(3 * Mp) + 0.00042 * E * sinD(M + 2 * F) + 0.00038 * E * sinD(M - 2 * F)
+    - 0.00024 * E * sinD(2 * Mp - M) - 0.00017 * sinD(Om);
+  return jde;
+}
+const moonPhaseUtc = (k, full) => jdToMs(moonPhaseJDE(k, full)) - DELTA_T;
+function moonPhasesAround(t, full) {
+  const yr = 2000 + (t - Date.UTC(2000, 0, 1)) / (365.25 * MS.d);
+  const k0 = Math.floor((yr - 2000) * 12.3685) - 2;
+  const out = [];
+  for (let k = k0; k < k0 + 6; k++) out.push(moonPhaseUtc(full ? k + 0.5 : k, full));
+  const next = out.find(x => x > t), prev = out.filter(x => x <= t).pop();
+  return { prev, next };
+}
+
+/* ---------- astronomy: Meeus equinoxes & solstices (±~1 min) ---------- */
+const SEASON_TERMS = [[485, 324.96, 1934.136], [203, 337.23, 32964.467], [199, 342.08, 20.186], [182, 27.85, 445267.112], [156, 73.14, 45036.886], [136, 171.52, 22518.443], [77, 222.54, 65928.934], [74, 296.72, 3034.906], [70, 243.58, 9037.513], [58, 119.81, 33718.147], [52, 297.17, 150.678], [50, 21.02, 2281.226], [45, 247.54, 29929.562], [44, 325.15, 31555.956], [29, 60.93, 4443.417], [18, 155.12, 67555.328], [17, 288.79, 4562.452], [16, 198.04, 62894.029], [14, 199.76, 31436.921], [12, 95.39, 14577.848], [12, 287.11, 31931.756], [12, 320.81, 34777.259], [9, 227.73, 1222.114], [8, 15.45, 16859.074]];
+function seasonUtc(year, which) { // 0 Mar equinox, 1 Jun solstice, 2 Sep equinox, 3 Dec solstice
+  const Y = (year - 2000) / 1000;
+  const c = [[2451623.80984, 365242.37404, 0.05169, -0.00411, -0.00057], [2451716.56767, 365241.62603, 0.00325, 0.00888, -0.0003], [2451810.21715, 365242.01767, -0.11575, 0.00337, 0.00078], [2451900.05952, 365242.74049, -0.06223, -0.00823, 0.00032]][which];
+  const jde0 = c[0] + c[1] * Y + c[2] * Y * Y + c[3] * Y ** 3 + c[4] * Y ** 4;
+  const T = (jde0 - 2451545) / 36525, W = 35999.373 * T - 2.47;
+  const dl = 1 + 0.0334 * cosD(W) + 0.0007 * cosD(2 * W);
+  let S = 0; for (const [A, B, C] of SEASON_TERMS) S += A * cosD(B + C * T);
+  return jdToMs(jde0 + 0.00001 * S / dl) - DELTA_T;
+}
+
+/* ---------- astronomy: sunrise / sunset (±~2 min) ---------- */
+function sunTimes(dateUtcMidnight, lat, lon) {
+  const n = Math.round(msToJd(dateUtcMidnight + MS.d / 2) - 2451545.0 + 0.0008);
+  const Js = n - lon / 360;
+  const M = ((357.5291 + 0.98560028 * Js) % 360 + 360) % 360;
+  const C = 1.9148 * sinD(M) + 0.02 * sinD(2 * M) + 0.0003 * sinD(3 * M);
+  const L = (M + C + 180 + 102.9372) % 360;
+  const Jt = 2451545 + Js + 0.0053 * sinD(M) - 0.0069 * sinD(2 * L);
+  const sd = sinD(L) * sinD(23.4397), cd = Math.cos(Math.asin(sd));
+  const cw = (sinD(-0.833) - sinD(lat) * sd) / (cosD(lat) * cd);
+  if (cw > 1) return { polar: 'night' };
+  if (cw < -1) return { polar: 'day' };
+  const w = Math.acos(cw) / D2R;
+  return { rise: jdToMs(Jt - w / 360), set: jdToMs(Jt + w / 360), noon: jdToMs(Jt) };
+}
+
+/* ---------- calendar: Gregorian Easter ---------- */
+function easter(Y) {
+  const a = Y % 19, b = Math.floor(Y / 100), c = Y % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mo = Math.floor((h + l - 7 * m + 114) / 31), da = ((h + l - 7 * m + 114) % 31) + 1;
+  return [mo, da];
+}
+function addDaysYMD(y, m, d, n) { const x = new Date(Date.UTC(y, m - 1, d + n)); return [x.getUTCFullYear(), x.getUTCMonth() + 1, x.getUTCDate()]; }
+
+/* ---------- event status: the single source of truth ---------- */
+/* precision: second | minute | hour | day | month | year */
+function eventStatus(e, now) {
+  if (e.override === 'cancelled') return 'cancelled';
+  if (e.override === 'postponed') return 'postponed';
+  if (e.kind === 'elapsed') {
+    if (now < e.start) return 'upcoming';
+    if (e.end != null && now >= e.end) return 'ended';
+    return 'ongoing';
+  }
+  if (e.precision === 'month' || e.precision === 'year') return now < e.start ? 'unconfirmed' : (e.end && now >= e.end ? 'completed' : 'awaiting');
+  if (e.precision === 'day') {
+    const [y, m, d] = e.date;
+    const dd = daysUntilInTz(now, y, m, d, e.tz);
+    if (dd > 0) return 'upcoming';
+    if (dd === 0) return 'today';
+    return 'completed';
+  }
+  if (now < e.start) return 'upcoming';
+  const end = e.end != null ? e.end : (e.durationMs ? e.start + e.durationMs : e.start);
+  if (now < end) return 'live';
+  return 'completed';
+}
+const STATUS_GROUP = { upcoming: 'upcoming', unconfirmed: 'upcoming', today: 'live', live: 'live', ongoing: 'ongoing', completed: 'completed', ended: 'completed', awaiting: 'completed', cancelled: 'completed', postponed: 'upcoming' };
+
+/* ---------- search intent parsing ---------- */
+const STOP = new Set('when is the a an of what how long has have been does do happens happen happening next in on at for to it this that there started exactly ago is are was will be my me show find events event major any most'.split(' '));
+function parseQuery(q, now) {
+  const s = q.toLowerCase().trim();
+  const out = { terms: [], window: null, sort: null, mode: null, startedAgo: null, firstOnly: false };
+  const num = w => ({ one: 1, a: 1, an: 1, two: 2, three: 3, five: 5, ten: 10, fifteen: 15, thirty: 30, sixty: 60 }[w] ?? parseFloat(w));
+  let m;
+  if ((m = s.match(/next\s+(\d+|one|two|three|five|ten|fifteen|thirty|sixty)\s+(second|minute|hour|day|week|month)s?/))) {
+    out.window = [now, now + num(m[1]) * { second: MS.s, minute: MS.m, hour: MS.h, day: MS.d, week: 7 * MS.d, month: 30 * MS.d }[m[2]]];
+  } else if (/\btomorrow\b/.test(s)) out.window = 'tomorrow';
+  else if (/\btoday\b/.test(s)) out.window = 'today';
+  else if (/\bthis week\b/.test(s)) out.window = [now, now + 7 * MS.d];
+  if ((m = s.match(/(?:exactly\s+)?(\d+|one|two|three|a|an)\s+(minute|hour|day|year)s?\s+ago/))) {
+    out.startedAgo = num(m[1]) * { minute: MS.m, hour: MS.h, day: MS.d, year: 365.25 * MS.d }[m[2]];
+    out.mode = 'elapsed';
+  }
+  if (/longest|running (for )?the longest|oldest/.test(s)) { out.sort = 'longest'; out.mode = 'elapsed'; }
+  if (/how long|been (going|running|operating|happening)|since/.test(s)) out.mode = out.mode || 'elapsed';
+  if (/\bnext\b|\bupcoming\b|when is|when does|coming up/.test(s) && !out.window) { out.mode = out.mode || 'countdown'; out.firstOnly = /\bthe next\b|when is|when does|what is the next/.test(s); }
+  if (/right now|happening now|\blive\b/.test(s)) out.mode = 'now';
+  if (/\brandom\b/.test(s)) out.random = true;
+  out.terms = s.replace(/["?.,!]/g, ' ').split(/\s+/).filter(w => w && !STOP.has(w) && !/^\d+$/.test(w)
+    && !/^(seconds?|minutes?|hours?|days?|weeks?|months?|years?|tomorrow|today|longest|random|now|right|live|operating|running|going|world|exactly|ago|upcoming|coming|up|since|week|oldest|one|two|three|five|ten|fifteen|thirty|sixty|kind)$/.test(w));
+  return out;
+}
+const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+function stem(w) { return w.replace(/(ies)$/, 'y').replace(/(es|s)$/, ''); }
+function matchScore(e, terms) {
+  if (!terms.length) return 1;
+  const hay = ' ' + norm([e.title, e.category, e.sub || '', e.city || '', e.country || '', e.venue || '', (e.tags || []).join(' '), e.summary || ''].join(' ')) + ' ';
+  let score = 0;
+  for (const t0 of terms) {
+    const t = stem(norm(t0)); if (!t) continue;
+    if (hay.includes(' ' + t)) score += norm(e.title).includes(t) ? 3 : 1;
+    else return 0;
+  }
+  return score;
+}
+
+/* ===== end core ===== */
+/* ===== EVERY SECOND · sources, adapters, ingestion pipeline ===== */
+const WIKI = p => ({ name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/' + p, kind: 'secondary' });
+const SRC = {
+  f1: { name: 'Formula 1 — 2026 calendar', url: 'https://www.formula1.com/en/latest/article/formula-1-reveals-calendar-for-2026-season.YctbMZWqBvrgyddrnauo8.YctbMZWqBvrgyddrnauo8', kind: 'official' },
+  therace: { name: 'The Race — F1 2026 calendar', url: 'https://www.the-race.com/formula-1/f1-2026-calendar-when-is-next-race/', kind: 'secondary' },
+  nasaEcl: d => ({ name: 'NASA Eclipse Web Site', url: 'https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=' + d, kind: 'official' }),
+  imo: { name: 'International Meteor Organization — calendar', url: 'https://www.imo.net/resources/calendar/', kind: 'official' },
+  ams: { name: 'American Meteor Society — shower calendar', url: 'https://www.amsmeteors.org/meteor-showers/meteor-shower-calendar/', kind: 'secondary' },
+  meeus: { name: 'Computed: Meeus, Astronomical Algorithms (2nd ed.)', url: 'https://aa.usno.navy.mil/data/MoonPhases', kind: 'computed' },
+  noaa: { name: 'Computed: sunrise equation (cross-check NOAA)', url: 'https://gml.noaa.gov/grad/solcalc/', kind: 'computed' },
+  rt: { name: 'Riigi Teataja — Public Holidays and Days of National Importance Act', url: 'https://www.riigiteataja.ee/en/', kind: 'official' },
+  nasa: (n, u) => ({ name: n, url: u, kind: 'official' }),
+};
+
+/* Helper that turns a compact seed record into a full event. */
+function mk(o) {
+  const e = Object.assign({
+    entity: 'scheduled', precision: 'second', tz: 'UTC', confidence: 'high', verification: 'VERIFIED',
+    popularity: 2, tags: [], sources: [], related: [], milestones: [], changes: [], visibility: 'public',
+  }, o);
+  if (o.date) {
+    const [y, m, d] = o.date.split('-').map(Number);
+    e.date = [y, m, d];
+    e.start = zonedToUtc(y, m, d, 0, 0, 0, e.tz);
+    if (e.precision === 'second') e.precision = 'day';
+  } else if (o.at) e.start = Date.parse(o.at);
+  if (o.until) e.end = Date.parse(o.until);
+  if (o.endDate) { const [y, m, d] = o.endDate.split('-').map(Number); e.end = zonedToUtc(y, m, d, 23, 59, 59, e.tz); }
+  e.slug = e.slug || e.id;
+  return e;
+}
+
+/* ---------------- Adapter: curated seed (Layer 1) ---------------- */
+const SEED_REVIEWED = Date.parse('2026-10-18T14:00:00Z');
+const KNOWLEDGE_REVIEWED = Date.parse('2026-06-30T00:00:00Z');
+function curatedSeed() {
+  const F1 = (id, title, date, tz, city, country, venue, extra = {}) => mk(Object.assign({
+    id, title, kind: 'countdown', category: 'Sports', sub: 'Formula 1', entity: 'occurrence', parent: 'f1-2026', date, tz, city, country, venue,
+    verification: 'OFFICIAL SCHEDULE', popularity: 4, tags: ['f1', 'formula 1', 'grand prix', 'race', 'motorsport'],
+    sources: [SRC.f1, SRC.therace], verifiedAt: SEED_REVIEWED,
+    summary: 'Race day on the official 2026 calendar. The race start time is not stored yet, so the clock shows days only.',
+    description: 'Grand Prix on the 2026 FIA Formula One World Championship calendar. Official race start times are published by Formula 1 closer to the weekend; until this event has one, EVERY SECOND counts days rather than inventing a start time.',
+  }, extra));
+  return [
+    /* ---------- politics ---------- */
+    mk({ id: 'us-midterms-2026', title: 'US midterm elections', kind: 'countdown', category: 'Politics', sub: 'Elections', date: '2026-11-03', tz: 'America/New_York', country: 'United States', verification: 'OFFICIAL SCHEDULE', popularity: 5, tags: ['election', 'congress', 'usa', 'vote'],
+      sources: [{ name: '2 U.S. Code § 7 — time of election', url: 'https://www.law.cornell.edu/uscode/text/2/7', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'All 435 House seats and about a third of the Senate.', description: 'Federal law fixes Election Day as the Tuesday after the first Monday in November. Polls open and close at different times in each state, so the clock counts to the date, not to a single minute.' }),
+    mk({ id: 'riigikogu-2027', title: 'Estonian parliamentary election (Riigikogu)', kind: 'countdown', category: 'Politics', sub: 'Elections', date: '2027-03-07', tz: 'Europe/Tallinn', city: 'Tallinn', country: 'Estonia', verification: 'OFFICIAL SCHEDULE', popularity: 4, tags: ['election', 'riigikogu', 'valimised', 'estonia', 'vote'],
+      sources: [{ name: 'Estonian National Electoral Committee', url: 'https://www.valimised.ee/en', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'Regular elections fall on the first Sunday of March, every four years.', description: 'The Riigikogu Election Act sets regular elections on the first Sunday of March in the fourth year after the previous election (5 March 2023). An early election would replace this date.' }),
+    mk({ id: 'spain-general-next', title: 'Next Spanish general election', kind: 'countdown', category: 'Politics', sub: 'Elections', precision: 'year', at: '2027-01-01T00:00:00Z', endBy: 'August 2027', tz: 'Europe/Madrid', city: 'Madrid', country: 'Spain', verification: 'UNCONFIRMED', confidence: 'low', popularity: 4, tags: ['election', 'spain', 'cortes', 'vote'],
+      sources: [WIKI('Next_Spanish_general_election'), { name: 'Spanish Constitution, Art. 68 (four-year term)', url: 'https://www.boe.es/legislacion/documentos/ConstitucionINGLES.pdf', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'No date has been set. The current Cortes was elected on 23 July 2023, so an election is due by mid-2027.', description: 'Spain has not announced the date. The legislature elected on 23 July 2023 runs for four years, so the latest regular election falls in summer 2027, and the Prime Minister can call it earlier. EVERY SECOND will not show a countdown until a royal decree sets the date.' }),
+    /* ---------- sports ---------- */
+    mk({ id: 'f1-2026', title: '2026 Formula 1 season', kind: 'elapsed', category: 'Sports', sub: 'Formula 1', entity: 'series', date: '2026-03-08', endDate: '2026-12-06', tz: 'Australia/Melbourne', verification: 'OFFICIAL SCHEDULE', popularity: 3, tags: ['f1', 'formula 1', 'season', 'motorsport'], sources: [SRC.f1], verifiedAt: SEED_REVIEWED,
+      summary: 'The season is a series. Each Grand Prix is a separate event.', description: 'The 2026 championship opened in Melbourne and ends in Abu Dhabi. This entry tracks the season as a whole; individual races are separate events linked below.' }),
+    F1('f1-2026-azerbaijan', 'Azerbaijan Grand Prix', '2026-09-26', 'Asia/Baku', 'Baku', 'Azerbaijan', 'Baku City Circuit', { changes: [{ t: SEED_REVIEWED, msg: 'Race held on a Saturday, a day earlier than the usual Sunday slot (per published calendar).' }], verification: 'RESCHEDULED' }),
+    F1('f1-2026-singapore', 'Singapore Grand Prix', '2026-10-11', 'Asia/Singapore', 'Singapore', 'Singapore', 'Marina Bay Street Circuit'),
+    F1('f1-2026-usa', 'United States Grand Prix', '2026-10-25', 'America/Chicago', 'Austin', 'United States', 'Circuit of the Americas'),
+    F1('f1-2026-mexico', 'Mexico City Grand Prix', '2026-11-01', 'America/Mexico_City', 'Mexico City', 'Mexico', 'Autódromo Hermanos Rodríguez'),
+    F1('f1-2026-brazil', 'São Paulo Grand Prix', '2026-11-08', 'America/Sao_Paulo', 'São Paulo', 'Brazil', 'Interlagos'),
+    F1('f1-2026-lasvegas', 'Las Vegas Grand Prix', '2026-11-21', 'America/Los_Angeles', 'Las Vegas', 'United States', 'Las Vegas Strip Circuit', { summary: 'A Saturday-night race on the Strip.' }),
+    F1('f1-2026-qatar', 'Qatar Grand Prix', '2026-11-29', 'Asia/Qatar', 'Lusail', 'Qatar', 'Lusail International Circuit'),
+    F1('f1-2026-abudhabi', 'Abu Dhabi Grand Prix', '2026-12-06', 'Asia/Dubai', 'Abu Dhabi', 'United Arab Emirates', 'Yas Marina Circuit', { summary: 'The final race of the 2026 season.' }),
+    mk({ id: 'la28-opening', title: 'LA 2028 Olympic Games opening ceremony', kind: 'countdown', category: 'Sports', sub: 'Olympics', date: '2028-07-14', tz: 'America/Los_Angeles', city: 'Los Angeles', country: 'United States', verification: 'OFFICIAL SCHEDULE', popularity: 5, tags: ['olympics', 'la28', 'games'],
+      sources: [{ name: 'LA28 — official site', url: 'https://la28.org/', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Los Angeles hosts the Summer Games for the third time.', description: 'The Games of the XXXIV Olympiad open on 14 July 2028. Los Angeles previously hosted in 1932 and 1984.' }),
+    /* ---------- space & astronomy ---------- */
+    mk({ id: 'eclipse-2027-08-02', title: 'Total solar eclipse', kind: 'countdown', category: 'Science & Space', sub: 'Eclipses', at: '2027-08-02T10:07:50Z', durationMs: 3 * MS.h, tz: 'Africa/Cairo', city: 'Luxor', country: 'Egypt', verification: 'VERIFIED', popularity: 5, tags: ['eclipse', 'solar', 'sun', 'astronomy', 'totality'],
+      sources: [SRC.nasaEcl('20270802')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Greatest eclipse near Luxor, with up to 6 min 23 s of totality.',
+      description: 'The path of totality crosses southern Spain, Gibraltar, North Africa and Arabia. The countdown targets the instant of greatest eclipse (10:07:50 UTC). The partial phases last about three hours across the whole track.' }),
+    mk({ id: 'eclipse-2027-02-06', title: 'Annular solar eclipse', kind: 'countdown', category: 'Science & Space', sub: 'Eclipses', at: '2027-02-06T16:00:00Z', precision: 'minute', durationMs: 3 * MS.h, country: 'South America · Atlantic · West Africa', verification: 'VERIFIED', confidence: 'medium', popularity: 3, tags: ['eclipse', 'annular', 'ring of fire', 'astronomy'],
+      sources: [SRC.nasaEcl('20270206')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'A "ring of fire" from Chile and Argentina across the Atlantic to West Africa.', description: 'Greatest eclipse occurs around 16:00 UTC. Timing is stored to the minute.' }),
+    mk({ id: 'halley-2061', title: "Halley's Comet returns (perihelion)", kind: 'countdown', category: 'Science & Space', sub: 'Comets', date: '2061-07-28', verification: 'PREDICTED', confidence: 'medium', popularity: 4, strange: true, tags: ['comet', 'halley', 'astronomy'],
+      sources: [SRC.nasa('NASA — 1P/Halley', 'https://science.nasa.gov/solar-system/comets/1p-halley/')], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'Its last visit was in February 1986.', description: 'Halley orbits the Sun about every 76 years. The 2061 perihelion date is an orbital prediction and may shift by a day as the orbit is refined.' }),
+    mk({ id: 'apophis-2029', title: 'Asteroid Apophis passes closer than our satellites', kind: 'countdown', category: 'Science & Space', sub: 'Asteroids', at: '2029-04-13T21:46:00Z', precision: 'minute', verification: 'PREDICTED', confidence: 'high', popularity: 4, strange: true, tags: ['asteroid', 'apophis', 'near earth', 'flyby'],
+      sources: [SRC.nasa('NASA — Apophis', 'https://science.nasa.gov/solar-system/asteroids/apophis/')], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'A 340-metre asteroid passes about 32,000 km from Earth. No impact risk.', description: 'On Friday 13 April 2029, Apophis will pass inside the ring of geostationary satellites and be visible to the naked eye from parts of Europe, Africa and Asia. Closest approach is predicted at about 21:46 UTC.' }),
+    mk({ id: 'voyager1-lightday', title: 'Voyager 1 reaches one light-day from Earth', kind: 'countdown', category: 'Science & Space', sub: 'Deep space', precision: 'month', at: '2026-11-01T00:00:00Z', verification: 'PREDICTED', confidence: 'medium', popularity: 4, strange: true, tags: ['voyager', 'nasa', 'light day', 'interstellar'],
+      sources: [SRC.nasa('NASA — Voyager mission', 'https://science.nasa.gov/mission/voyager/')], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'Expected around November 2026. A radio signal will take 24 hours one way.', description: 'Voyager 1 is drifting away at about 17 km/s. Around November 2026 its distance from Earth reaches one light-day (about 25.9 billion km). Because Earth orbits the Sun, the exact day depends on how distance is measured, so the date is shown to the month.' }),
+    /* ---------- the time itself ---------- */
+    mk({ id: 'y2038', title: 'The Year 2038 problem (32-bit Unix time overflows)', kind: 'countdown', category: 'Internet & Digital', sub: 'Computing milestones', at: '2038-01-19T03:14:08Z', verification: 'VERIFIED', popularity: 4, strange: true, tags: ['unix', 'y2038', 'computers', 'bug', 'time'],
+      sources: [WIKI('Year_2038_problem')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Signed 32-bit clocks wrap around to 13 December 1901.',
+      description: 'A signed 32-bit integer can count up to 2,147,483,647 seconds after 1 January 1970. One second later, at 03:14:08 UTC on 19 January 2038, unpatched systems overflow. This moment is exact: it is arithmetic, not a forecast.' }),
+    mk({ id: 'unix-2e9', title: 'Unix time reaches 2,000,000,000 seconds', kind: 'countdown', category: 'Internet & Digital', sub: 'Computing milestones', at: '2033-05-18T03:33:20Z', verification: 'VERIFIED', popularity: 2, strange: true, tags: ['unix', 'epoch', 'time', 'computers'],
+      sources: [{ name: 'POSIX — Seconds Since the Epoch', url: 'https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_16', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'The second "billennium" of computer time.', description: 'Computed exactly from the Unix epoch. The first billion seconds passed on 9 September 2001.' }),
+    /* ---------- in progress ---------- */
+    mk({ id: 'iss-occupation', title: 'International Space Station — continuous human presence', kind: 'elapsed', category: 'Science & Space', sub: 'Human spaceflight', entity: 'ongoing', at: '2000-11-02T09:21:00Z', precision: 'minute', verification: 'VERIFIED', popularity: 5, tags: ['iss', 'space station', 'nasa', 'astronauts', 'roscosmos'],
+      sources: [SRC.nasa('NASA — International Space Station', 'https://www.nasa.gov/international-space-station/')], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'People have lived in orbit without a break since Expedition 1 docked.', description: 'Expedition 1 (Bill Shepherd, Yuri Gidzenko, Sergei Krikalev) docked at 09:21 UTC on 2 November 2000. Since then at least one person has always been aboard. Current plans retire the station around 2030.',
+      milestones: [{ t: Date.parse('1998-11-20T06:40:00Z'), label: 'First module, Zarya, launched' }, { t: Date.parse('2000-11-02T09:21:00Z'), label: 'Expedition 1 docks; occupation begins' }, { t: Date.parse('2011-07-21T09:57:00Z'), label: 'Last Space Shuttle mission lands' }] }),
+    mk({ id: 'voyager1', title: 'Voyager 1 in space', kind: 'elapsed', category: 'Science & Space', sub: 'Deep space', entity: 'ongoing', at: '1977-09-05T12:56:00Z', precision: 'minute', verification: 'VERIFIED', popularity: 5, tags: ['voyager', 'nasa', 'probe', 'interstellar'], related: ['voyager2', 'voyager1-lightday'],
+      sources: [SRC.nasa('NASA — Voyager 1', 'https://science.nasa.gov/mission/voyager/voyager-1/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'The most distant human-made object, in interstellar space since 2012.', description: 'Launched from Cape Canaveral on 5 September 1977. It crossed the heliopause on 25 August 2012.',
+      milestones: [{ t: Date.parse('1979-03-05T12:05:00Z'), label: 'Jupiter closest approach' }, { t: Date.parse('1980-11-12T23:46:00Z'), label: 'Saturn closest approach' }, { t: Date.parse('1990-02-14T04:48:00Z'), label: '"Pale Blue Dot" photograph' }, { t: Date.parse('2012-08-25T00:00:00Z'), label: 'Enters interstellar space' }] }),
+    mk({ id: 'voyager2', title: 'Voyager 2 in space', kind: 'elapsed', category: 'Science & Space', sub: 'Deep space', entity: 'ongoing', at: '1977-08-20T14:29:00Z', precision: 'minute', verification: 'VERIFIED', popularity: 3, tags: ['voyager', 'nasa', 'probe'], related: ['voyager1'],
+      sources: [SRC.nasa('NASA — Voyager 2', 'https://science.nasa.gov/mission/voyager/voyager-2/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Launched 16 days before Voyager 1. The only spacecraft to visit Uranus and Neptune.', description: 'Launched 20 August 1977. Entered interstellar space on 5 November 2018.' }),
+    mk({ id: 'hubble', title: 'Hubble Space Telescope in orbit', kind: 'elapsed', category: 'Science & Space', sub: 'Telescopes', entity: 'ongoing', at: '1990-04-24T12:33:51Z', verification: 'VERIFIED', popularity: 3, tags: ['hubble', 'telescope', 'nasa', 'esa'], related: ['jwst'],
+      sources: [SRC.nasa('NASA — Hubble', 'https://science.nasa.gov/mission/hubble/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Launched aboard Space Shuttle Discovery (STS-31).', description: 'Lifted off at 12:33:51 UTC on 24 April 1990 and was deployed the next day.' }),
+    mk({ id: 'jwst', title: 'James Webb Space Telescope mission', kind: 'elapsed', category: 'Science & Space', sub: 'Telescopes', entity: 'ongoing', at: '2021-12-25T12:20:00Z', precision: 'minute', verification: 'VERIFIED', popularity: 3, tags: ['jwst', 'webb', 'telescope', 'nasa'], related: ['hubble'],
+      sources: [SRC.nasa('NASA — Webb', 'https://science.nasa.gov/mission/webb/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Launched on an Ariane 5 from Kourou on Christmas Day.', description: 'Launched 25 December 2021 at 12:20 UTC. Arrived at the Sun–Earth L2 point on 24 January 2022.' }),
+    mk({ id: 'curiosity', title: 'Curiosity rover on Mars', kind: 'elapsed', category: 'Science & Space', sub: 'Planetary', entity: 'ongoing', at: '2012-08-06T05:17:57Z', verification: 'VERIFIED', popularity: 3, tags: ['mars', 'rover', 'curiosity', 'nasa'], related: ['perseverance'],
+      sources: [SRC.nasa('NASA — Curiosity', 'https://science.nasa.gov/mission/msl-curiosity/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Landed in Gale Crater.', description: 'Touchdown confirmed at 05:17:57 UTC (Earth-received time) on 6 August 2012.' }),
+    mk({ id: 'perseverance', title: 'Perseverance rover on Mars', kind: 'elapsed', category: 'Science & Space', sub: 'Planetary', entity: 'ongoing', at: '2021-02-18T20:55:00Z', precision: 'minute', verification: 'VERIFIED', popularity: 3, tags: ['mars', 'rover', 'perseverance', 'nasa', 'ingenuity'], related: ['curiosity'],
+      sources: [SRC.nasa('NASA — Perseverance', 'https://science.nasa.gov/mission/mars-2020-perseverance/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Landed in Jezero Crater.', description: 'Touchdown confirmed around 20:55 UTC on 18 February 2021.' }),
+    mk({ id: 'cassini', title: 'Cassini mission', kind: 'elapsed', category: 'Science & Space', sub: 'Planetary', entity: 'historical', at: '1997-10-15T08:43:00Z', until: '2017-09-15T11:55:46Z', precision: 'minute', verification: 'VERIFIED', popularity: 2, tags: ['saturn', 'cassini', 'nasa', 'esa'],
+      sources: [SRC.nasa('NASA — Cassini', 'https://science.nasa.gov/mission/cassini/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Ended by a planned plunge into Saturn. Final duration preserved.', description: 'Launched 15 October 1997; signal lost at 11:55:46 UTC on 15 September 2017 as the spacecraft burned up in Saturn\'s atmosphere.' }),
+    mk({ id: 'us-president-term', title: 'Current US presidential term (Donald Trump, 2nd term)', kind: 'elapsed', category: 'Politics', sub: 'Offices', entity: 'ongoing', at: '2025-01-20T17:00:00Z', scheduledEnd: Date.parse('2029-01-20T17:00:00Z'), tz: 'America/New_York', city: 'Washington, D.C.', country: 'United States', verification: 'VERIFIED', popularity: 5, tags: ['president', 'trump', 'white house', 'usa', 'term'], related: ['trump-term-1', 'trump-birthday', 'us-midterms-2026'],
+      sources: [{ name: 'U.S. Constitution, 20th Amendment (term begins at noon)', url: 'https://constitution.congress.gov/constitution/amendment-20/', kind: 'official' }, { name: 'The White House', url: 'https://www.whitehouse.gov/', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED,
+      summary: 'Began at noon Eastern on 20 January 2025.', description: 'Presidential terms begin and end at noon Eastern Time on 20 January. The scheduled end of this term is shown separately; the clock counts up from the start.' }),
+    mk({ id: 'trump-term-1', title: 'Donald Trump — 1st presidential term', kind: 'elapsed', category: 'Politics', sub: 'Offices', entity: 'historical', at: '2017-01-20T17:00:00Z', until: '2021-01-20T17:00:00Z', tz: 'America/New_York', city: 'Washington, D.C.', country: 'United States', verification: 'VERIFIED', popularity: 2, tags: ['president', 'trump', 'term'], related: ['us-president-term'],
+      sources: [{ name: 'U.S. Constitution, 20th Amendment', url: 'https://constitution.congress.gov/constitution/amendment-20/', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Completed. Final duration preserved.', description: 'Ran from noon on 20 January 2017 to noon on 20 January 2021.' }),
+    mk({ id: 'pope-leo-xiv', title: 'Pontificate of Pope Leo XIV', kind: 'elapsed', category: 'People & Culture', sub: 'Offices', entity: 'ongoing', at: '2025-05-08T16:07:00Z', precision: 'minute', tz: 'Europe/Rome', city: 'Vatican City', country: 'Vatican City', verification: 'VERIFIED', popularity: 3, tags: ['pope', 'vatican', 'leo xiv', 'church'],
+      sources: [{ name: 'Holy See', url: 'https://www.vatican.va/', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Robert Francis Prevost, the first pope from the United States.', description: 'Counted from the white smoke over the Sistine Chapel at about 18:07 Rome time on 8 May 2025.' }),
+    mk({ id: 'sagrada', title: 'Sagrada Família under construction', kind: 'elapsed', category: 'Transport & Infrastructure', sub: 'Construction', entity: 'ongoing', date: '1882-03-19', tz: 'Europe/Madrid', city: 'Barcelona', country: 'Spain', verification: 'VERIFIED', popularity: 4, strange: true, tags: ['sagrada familia', 'gaudi', 'construction', 'basilica', 'barcelona'],
+      sources: [{ name: 'Basílica de la Sagrada Família — history', url: 'https://sagradafamilia.org/en/history', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Building began with the first stone on 19 March 1882.', description: 'Antoni Gaudí took over the project in 1883. Work continues on the remaining towers and the main façade. Status is as of the last verification date below.' }),
+    mk({ id: 'oxford-bell', title: 'Oxford Electric Bell, still ringing', kind: 'elapsed', category: 'Science & Space', sub: 'Experiments', entity: 'ongoing', precision: 'year', at: '1840-01-01T00:00:00Z', tz: 'Europe/London', city: 'Oxford', country: 'United Kingdom', verification: 'VERIFIED', confidence: 'medium', popularity: 3, strange: true, tags: ['bell', 'battery', 'experiment', 'oxford', 'physics'],
+      sources: [WIKI('Oxford_Electric_Bell')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Two dry piles, set up in 1840, have kept it ringing (very quietly) ever since.', description: 'Clarendon Laboratory, University of Oxford. Only the year it was set up is documented, so the clock counts whole years.' }),
+    mk({ id: 'pitch-drop', title: 'The pitch drop experiment', kind: 'elapsed', category: 'Science & Space', sub: 'Experiments', entity: 'ongoing', precision: 'year', at: '1927-01-01T00:00:00Z', tz: 'Australia/Brisbane', city: 'Brisbane', country: 'Australia', verification: 'VERIFIED', confidence: 'medium', popularity: 3, strange: true, tags: ['pitch', 'experiment', 'queensland', 'physics'],
+      sources: [{ name: 'University of Queensland — Pitch Drop Experiment', url: 'https://smp.uq.edu.au/pitch-drop-experiment', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Nine drops have fallen. Nobody has ever seen one fall live.', description: 'Professor Thomas Parnell poured heated pitch into a sealed funnel in 1927 and cut the stem in 1930. It holds the Guinness record for the longest-running laboratory experiment.' }),
+    mk({ id: 'darvaza', title: 'Darvaza gas crater burning ("Door to Hell")', kind: 'elapsed', category: 'Weather & Nature', sub: 'Phenomena', entity: 'ongoing', precision: 'year', at: '1971-01-01T00:00:00Z', tz: 'Asia/Ashgabat', country: 'Turkmenistan', verification: 'ESTIMATED', confidence: 'low', popularity: 3, strange: true, tags: ['crater', 'gas', 'fire', 'turkmenistan'],
+      sources: [WIKI('Darvaza_gas_crater')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Commonly dated to 1971; the start year is disputed and the fire has weakened.', description: 'Most accounts say geologists set the gas alight in 1971 so it would burn off in a few weeks. Some local accounts give the 1960s or 1980s. Turkmenistan has reported efforts to reduce the flames. Treat this clock as an estimate.' }),
+    mk({ id: 'centralia', title: 'Centralia mine fire', kind: 'elapsed', category: 'Weather & Nature', sub: 'Phenomena', entity: 'ongoing', date: '1962-05-27', tz: 'America/New_York', city: 'Centralia', country: 'United States', verification: 'ESTIMATED', confidence: 'medium', popularity: 3, strange: true, tags: ['fire', 'coal', 'mine', 'pennsylvania', 'ghost town'],
+      sources: [WIKI('Centralia_mine_fire')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'A coal-seam fire under a Pennsylvania town that was mostly abandoned.', description: 'Usually dated to a landfill fire on 27 May 1962 that spread into abandoned coal mines. It may burn for another century.' }),
+    mk({ id: 'unix-epoch', title: 'Unix time', kind: 'elapsed', category: 'Internet & Digital', sub: 'Computing milestones', entity: 'ongoing', at: '1970-01-01T00:00:00Z', verification: 'VERIFIED', popularity: 2, strange: true, tags: ['unix', 'epoch', 'time', 'computers'], related: ['unix-2e9', 'y2038'],
+      sources: [{ name: 'POSIX — Seconds Since the Epoch', url: 'https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_16', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Most computers count time from this instant.', description: 'Seconds since 00:00:00 UTC on 1 January 1970, ignoring leap seconds.' }),
+    mk({ id: 'eiffel', title: 'Eiffel Tower standing', kind: 'elapsed', category: 'Transport & Infrastructure', sub: 'Buildings', entity: 'ongoing', date: '1889-03-31', tz: 'Europe/Paris', city: 'Paris', country: 'France', verification: 'VERIFIED', popularity: 3, tags: ['eiffel', 'tower', 'paris', 'landmark'],
+      sources: [{ name: 'Tour Eiffel — history', url: 'https://www.toureiffel.paris/en/the-monument/history', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Inaugurated on 31 March 1889. It was meant to stand for 20 years.', description: 'Built for the 1889 World\'s Fair. The original permit ran for 20 years; radio experiments saved it.' }),
+    mk({ id: 'mousetrap', title: '"The Mousetrap" running in London', kind: 'elapsed', category: 'Music & Entertainment', sub: 'Theatre', entity: 'ongoing', date: '1952-11-25', tz: 'Europe/London', city: 'London', country: 'United Kingdom', venue: "St Martin's Theatre", verification: 'VERIFIED', popularity: 2, strange: true, tags: ['theatre', 'agatha christie', 'mousetrap', 'west end', 'play'],
+      sources: [{ name: 'The Mousetrap — official site', url: 'https://www.the-mousetrap.co.uk/', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'The longest-running play in history. Paused March 2020 to May 2021.', description: 'Agatha Christie\'s murder mystery opened in the West End on 25 November 1952. The run was paused during the COVID-19 closures; the clock counts from opening night.' }),
+    mk({ id: 'estonia-eu', title: 'Estonia in the European Union', kind: 'elapsed', category: 'Politics', sub: 'Milestones', entity: 'ongoing', date: '2004-05-01', tz: 'Europe/Tallinn', city: 'Tallinn', country: 'Estonia', verification: 'VERIFIED', popularity: 2, tags: ['estonia', 'eu', 'european union', 'eesti'], related: ['estonia-euro'],
+      sources: [{ name: 'European Union — Estonia', url: 'https://european-union.europa.eu/principles-countries-history/eu-countries/estonia_en', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Joined with nine other countries in the 2004 enlargement.', description: 'Estonia became an EU member state on 1 May 2004.' }),
+    mk({ id: 'estonia-euro', title: 'Estonia using the euro', kind: 'elapsed', category: 'Business & Tech', sub: 'Milestones', entity: 'ongoing', date: '2011-01-01', tz: 'Europe/Tallinn', city: 'Tallinn', country: 'Estonia', verification: 'VERIFIED', popularity: 2, tags: ['estonia', 'euro', 'currency', 'kroon', 'eesti'], related: ['estonia-eu'],
+      sources: [{ name: 'Eesti Pank', url: 'https://www.eestipank.ee/en', kind: 'official' }], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Replaced the kroon at 15.6466 kroons per euro.', description: 'Estonia adopted the euro on 1 January 2011, the 17th eurozone country.' }),
+    mk({ id: 'wikipedia', title: 'Wikipedia online', kind: 'elapsed', category: 'Internet & Digital', sub: 'Platforms', entity: 'ongoing', date: '2001-01-15', tz: 'America/New_York', verification: 'VERIFIED', popularity: 2, tags: ['wikipedia', 'encyclopedia', 'internet'],
+      sources: [WIKI('History_of_Wikipedia')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'Launched by Jimmy Wales and Larry Sanger.', description: 'Wikipedia went online on 15 January 2001.' }),
+    mk({ id: 'moon-landing', title: 'Since humans first landed on the Moon', kind: 'elapsed', category: 'History', sub: 'Space history', entity: 'historical-since', at: '1969-07-20T20:17:40Z', verification: 'VERIFIED', popularity: 4, tags: ['apollo 11', 'moon', 'armstrong', 'nasa'],
+      sources: [SRC.nasa('NASA — Apollo 11', 'https://www.nasa.gov/mission/apollo-11/')], verifiedAt: KNOWLEDGE_REVIEWED, summary: 'The Eagle touched down in the Sea of Tranquility.', description: 'Lunar module Eagle landed at 20:17:40 UTC on 20 July 1969. Neil Armstrong stepped onto the surface about six and a half hours later.' }),
+  ];
+}
+
+/* ---------------- Adapter: computed astronomy ---------------- */
+const SHOWERS = [
+  ['Quadrantids', [1, 3], [12, 28], [1, 12]], ['Lyrids', [4, 22], [4, 14], [4, 30]], ['Eta Aquariids', [5, 6], [4, 19], [5, 28]],
+  ['Perseids', [8, 12], [7, 17], [8, 24]], ['Orionids', [10, 21], [10, 2], [11, 7]], ['Leonids', [11, 17], [11, 6], [11, 30]], ['Geminids', [12, 14], [12, 4], [12, 20]],
+];
+function astronomyAdapter(now) {
+  const out = [], Y = new Date(now).getUTCFullYear();
+  const fm = moonPhasesAround(now, true), nm = moonPhasesAround(now, false);
+  const lastFullPrev = moonPhasesAround(fm.prev - MS.h, true).prev;
+  const moonBase = { category: 'Science & Space', sub: 'Moon', entity: 'occurrence', precision: 'minute', verification: 'VERIFIED', confidence: 'high', sources: [SRC.meeus], computed: true, verifiedAt: now, tags: ['moon', 'lunar', 'astronomy', 'full moon'] };
+  out.push(mk(Object.assign({}, moonBase, { id: 'full-moon-next', title: 'Next full moon', kind: 'countdown', start: fm.next, durationMs: 0, popularity: 3, series: 'full-moon', prevOcc: fm.prev, nextOcc: moonPhasesAround(fm.next + MS.h, true).next,
+    summary: 'Exact instant of opposition, computed in your browser.', description: 'The moment the Moon is exactly opposite the Sun, computed with Jean Meeus\'s algorithm (accurate to about two minutes). The Moon looks full for roughly a day either side.' })));
+  out.push(mk(Object.assign({}, moonBase, { id: 'full-moon-since', title: 'Time since the last full moon', kind: 'elapsed', entity: 'recurring-since', start: fm.prev, popularity: 1, series: 'full-moon', prevOcc: lastFullPrev, nextOcc: fm.next,
+    summary: 'A recurring phenomenon: this counts from the previous occurrence.', description: 'For recurring phenomena EVERY SECOND keeps two clocks: a countdown to the next occurrence and this one, counting from the previous one. A lunar cycle averages 29 days 12 hours 44 minutes.' })));
+  out.push(mk(Object.assign({}, moonBase, { id: 'new-moon-next', title: 'Next new moon', kind: 'countdown', start: nm.next, durationMs: 0, popularity: 2, tags: ['moon', 'new moon', 'astronomy', 'dark sky'], series: 'new-moon', prevOcc: nm.prev,
+    summary: 'Darkest skies of the month for stargazing.', description: 'The instant of conjunction, when the Moon sits between Earth and the Sun. Computed with Meeus\'s algorithm.' })));
+  const seasons = [];
+  for (const y of [Y - 1, Y, Y + 1]) for (let w = 0; w < 4; w++) seasons.push({ t: seasonUtc(y, w), w });
+  const nextS = seasons.find(s => s.t > now), prevS = seasons.filter(s => s.t <= now).pop();
+  const SN = ['March equinox', 'June solstice', 'September equinox', 'December solstice'];
+  const SEASON = ['Spring', 'Summer', 'Autumn', 'Winter'];
+  out.push(mk({ id: 'season-next', title: 'Next ' + SN[nextS.w], kind: 'countdown', category: 'Science & Space', sub: 'Seasons', entity: 'occurrence', start: nextS.t, precision: 'minute', verification: 'VERIFIED', sources: [SRC.meeus], computed: true, verifiedAt: now, popularity: 3, tags: ['solstice', 'equinox', 'season', 'astronomy'],
+    summary: nextS.w === 3 ? 'Shortest day in the Northern Hemisphere.' : nextS.w === 1 ? 'Longest day in the Northern Hemisphere.' : 'Day and night are nearly equal everywhere.', description: 'Computed with Meeus\'s algorithm, accurate to about a minute.' }));
+  out.push(mk({ id: 'season-current', title: 'Astronomical ' + SEASON[prevS.w].toLowerCase() + ' (Northern Hemisphere)', kind: 'elapsed', category: 'Weather & Nature', sub: 'Seasons', entity: 'ongoing', start: prevS.t, end: null, scheduledEnd: nextS.t, precision: 'minute', verification: 'VERIFIED', sources: [SRC.meeus], computed: true, verifiedAt: now, popularity: 2, tags: ['season', 'autumn', 'winter', 'spring', 'summer'],
+    summary: 'Began at the ' + SN[prevS.w] + '.', description: 'Astronomical seasons run from one solstice or equinox to the next. The scheduled end is shown separately; the clock counts up.' }));
+  for (const [name, pk, a, b] of SHOWERS) {
+    for (const y of [Y - 1, Y, Y + 1]) {
+      const peak = zonedToUtc(y, pk[0], pk[1], 0, 0, 0, 'UTC');
+      const ay = a[0] > pk[0] ? y - 1 : y, by = b[0] < pk[0] ? y + 1 : y;
+      const as = zonedToUtc(ay, a[0], a[1], 0, 0, 0, 'UTC'), be = zonedToUtc(by, b[0], b[1], 23, 59, 59, 'UTC');
+      const base = { category: 'Science & Space', sub: 'Meteor showers', sources: [SRC.imo, SRC.ams], computed: true, verifiedAt: now, verification: 'ESTIMATED', confidence: 'medium', tags: ['meteor', 'shower', name.toLowerCase(), 'astronomy', 'shooting stars'] };
+      if (peak + MS.d > now && peak - 400 * MS.d < now)
+        out.push(mk(Object.assign({}, base, { id: 'shower-' + name.toLowerCase().replace(/\s/g, '-') + '-' + y, title: name + ' meteor shower peak', kind: 'countdown', entity: 'occurrence', date: `${y}-${pad(pk[0])}-${pad(pk[1])}`, popularity: name === 'Perseids' || name === 'Geminids' ? 4 : 2,
+          summary: 'Typical annual peak night. Exact peak varies by a day.', description: `Peak date from the annual shower calendar. The real maximum can shift by several hours to a day; check the IMO calendar for this year's prediction. Active roughly ${a[1]}.${a[0]} – ${b[1]}.${b[0]}.` })));
+      if (as <= now && now <= be)
+        out.push(mk(Object.assign({}, base, { id: 'shower-active-' + name.toLowerCase().replace(/\s/g, '-'), title: name + ' meteor shower active', kind: 'elapsed', entity: 'ongoing', start: as, end: be, precision: 'day', date: undefined, popularity: 2,
+          summary: 'Inside the typical activity window.', description: 'Meteor showers stay active for weeks around the peak. The window dates are typical values, not exact.' })));
+    }
+  }
+  return out;
+}
+
+/* ---------------- Adapter: computed sunrise/sunset for cities ---------------- */
+const CITIES = [['Tallinn', 'Estonia', 59.437, 24.7536, 'Europe/Tallinn'], ['London', 'United Kingdom', 51.5072, -0.1276, 'Europe/London'], ['New York', 'United States', 40.7128, -74.006, 'America/New_York'], ['Tokyo', 'Japan', 35.6762, 139.6503, 'Asia/Tokyo'], ['Sydney', 'Australia', -33.8688, 151.2093, 'Australia/Sydney'], ['Madrid', 'Spain', 40.4168, -3.7038, 'Europe/Madrid']];
+function sunAdapter(now) {
+  const out = [];
+  for (const [city, country, lat, lon, tz] of CITIES) {
+    const ev = [];
+    for (let k = -1; k <= 2; k++) {
+      const day = Math.floor(now / MS.d) * MS.d + k * MS.d;
+      const s = sunTimes(day, lat, lon);
+      if (s.rise) ev.push({ t: s.rise, w: 'Sunrise' }, { t: s.set, w: 'Sunset' });
+    }
+    ev.sort((a, b) => a.t - b.t);
+    const base = { category: 'Weather & Nature', sub: 'Sun', city, country, tz, precision: 'minute', verification: 'VERIFIED', confidence: 'high', sources: [SRC.noaa], computed: true, verifiedAt: now, lat, lon, tags: ['sun', 'sunrise', 'sunset', 'daylight', city.toLowerCase()], popularity: city === 'Tallinn' ? 2 : 1 };
+    const nxt = ev.find(x => x.t > now);
+    if (nxt) out.push(mk(Object.assign({}, base, { id: 'sun-' + city.toLowerCase().replace(/\s/g, '-') + '-next', title: nxt.w + ' in ' + city, kind: 'countdown', entity: 'occurrence', start: nxt.t, durationMs: 0, summary: 'Computed for the city centre, standard refraction.', description: 'Upper limb of the Sun on a flat horizon, using the sunrise equation (accurate to a couple of minutes). Hills, buildings and weather change what you actually see.' })));
+    const lastRise = ev.filter(x => x.w === 'Sunrise' && x.t <= now).pop(), lastSet = ev.filter(x => x.w === 'Sunset' && x.t <= now).pop();
+    if (lastRise && (!lastSet || lastSet.t < lastRise.t)) {
+      const set = ev.find(x => x.w === 'Sunset' && x.t > lastRise.t);
+      out.push(mk(Object.assign({}, base, { id: 'sun-' + city.toLowerCase().replace(/\s/g, '-') + '-day', title: 'Daylight in ' + city, kind: 'elapsed', entity: 'ongoing', start: lastRise.t, end: null, scheduledEnd: set && set.t, summary: 'The Sun is up. Counting from sunrise.', description: 'Counts up from today\'s computed sunrise. Sunset is shown separately.' })));
+    }
+  }
+  return out;
+}
+
+/* ---------------- Adapter: Estonian public holidays (computed by law) ---------------- */
+function holidaysEE(now) {
+  const out = [], tz = 'Europe/Tallinn', p = tzParts(now, tz);
+  for (const y of [p.y, p.y + 1]) {
+    const [em, ed] = easter(y);
+    const list = [
+      [1, 1, 'New Year\'s Day', 'Uusaasta'], [2, 24, 'Independence Day', 'Iseseisvuspäev'],
+      [...addDaysYMD(y, em, ed, -2).slice(1), 'Good Friday', 'Suur reede'], [em, ed, 'Easter Sunday', 'Ülestõusmispühade 1. püha'],
+      [5, 1, 'Spring Day', 'Kevadpüha'], [...addDaysYMD(y, em, ed, 49).slice(1), 'Pentecost', 'Nelipühade 1. püha'],
+      [6, 23, 'Victory Day', 'Võidupüha'], [6, 24, 'Midsummer Day', 'Jaanipäev'], [8, 20, 'Day of Restoration of Independence', 'Taasiseseisvumispäev'],
+      [12, 24, 'Christmas Eve', 'Jõululaupäev'], [12, 25, 'Christmas Day', 'Esimene jõulupüha'], [12, 26, 'Boxing Day', 'Teine jõulupüha'],
+    ];
+    for (const [m, d, en, et] of list) {
+      if (daysUntilInTz(now, y, m, d, tz) < -3) continue;
+      out.push(mk({ id: `ee-holiday-${y}-${pad(m)}-${pad(d)}`, title: `${en} in Estonia (${et})`, kind: 'countdown', category: 'People & Culture', sub: 'Public holidays', entity: 'occurrence', date: `${y}-${pad(m)}-${pad(d)}`, tz, city: 'Tallinn', country: 'Estonia', verification: 'OFFICIAL SCHEDULE', sources: [SRC.rt], computed: true, verifiedAt: now, popularity: 2, tags: ['holiday', 'estonia', 'riigipüha', 'eesti', 'public holiday'], series: 'ee-holidays',
+        summary: 'Public holiday (riigipüha), a day off.', description: 'Listed in the Public Holidays and Days of National Importance Act. Easter-based holidays are computed with the Gregorian Easter algorithm.' }));
+    }
+  }
+  return out;
+}
+
+/* ---------------- Adapter: birthdays & anniversaries (recurring) ---------------- */
+const PEOPLE = [
+  ['Donald Trump', '1946-06-14', 'Queens, New York', 'Donald_Trump', 'trump-birthday', ['president', 'politics']], ['Arvo Pärt', '1935-09-11', 'Paide, Estonia', 'Arvo_P%C3%A4rt', null, ['composer', 'music', 'estonia']],
+  ['Taylor Swift', '1989-12-13', 'West Reading, Pennsylvania', 'Taylor_Swift', null, ['singer', 'music', 'pop']], ['Lionel Messi', '1987-06-24', 'Rosario, Argentina', 'Lionel_Messi', null, ['football', 'soccer']],
+  ['Cristiano Ronaldo', '1985-02-05', 'Funchal, Portugal', 'Cristiano_Ronaldo', null, ['football', 'soccer']], ['Kaja Kallas', '1977-06-18', 'Tallinn, Estonia', 'Kaja_Kallas', null, ['politics', 'eu', 'estonia']],
+  ['Keanu Reeves', '1964-09-02', 'Beirut, Lebanon', 'Keanu_Reeves', null, ['actor', 'film']], ['Paul McCartney', '1942-06-18', 'Liverpool, England', 'Paul_McCartney', null, ['music', 'beatles']],
+  ['Ott Tänak', '1987-10-15', 'Kärla, Estonia', 'Ott_T%C3%A4nak', null, ['rally', 'wrc', 'estonia', 'motorsport']], ['The 14th Dalai Lama', '1935-07-06', 'Taktser, Amdo', '14th_Dalai_Lama', null, ['religion', 'tibet']],
+];
+const ANNIV = [
+  ['Moon landing anniversary', '1969-07-20', 'History', 'Apollo_11', ['apollo', 'moon', 'nasa'], 'moon-landing'], ['Fall of the Berlin Wall anniversary', '1989-11-09', 'History', 'Fall_of_the_Berlin_Wall', ['berlin', 'germany', 'cold war'], null],
+  ['Baltic Way anniversary', '1989-08-23', 'History', 'Baltic_Way', ['estonia', 'latvia', 'lithuania', 'baltic'], null], ['Republic of Estonia proclaimed — anniversary', '1918-02-24', 'History', 'Estonian_Declaration_of_Independence', ['estonia', 'independence', 'eesti'], null],
+  ['World Wide Web made public — anniversary', '1991-08-06', 'Internet & Digital', 'World_Wide_Web', ['www', 'internet', 'tim berners-lee'], null],
+];
+function nextAnnual(now, m, d, tz) {
+  const p = tzParts(now, tz);
+  let y = p.y;
+  const fix = yy => (m === 2 && d === 29 && !isLeap(yy)) ? 28 : d;
+  if (daysUntilInTz(now, y, m, fix(y), tz) < 0) y++;
+  return [y, fix(y)];
+}
+function anniversariesAdapter(now, userTz) {
+  const out = [];
+  for (const [name, born, place, wiki, id, tags] of PEOPLE) {
+    const [by, bm, bd] = born.split('-').map(Number);
+    const [y, d] = nextAnnual(now, bm, bd, userTz);
+    out.push(mk({ id: id || 'birthday-' + norm(name).replace(/\s/g, '-'), title: `${name}'s ${y - by}th birthday`, kind: 'countdown', category: 'People & Culture', sub: 'Birthdays', entity: 'occurrence', date: `${y}-${pad(bm)}-${pad(d)}`, tz: userTz, tzLabel: 'your time zone', person: name,
+      verification: 'VERIFIED', sources: [WIKI(wiki)], computed: true, verifiedAt: KNOWLEDGE_REVIEWED, popularity: name === 'Donald Trump' || name === 'Taylor Swift' ? 3 : 2, tags: ['birthday', ...tags, ...norm(name).split(' ')], series: 'birthday',
+      summary: `Born ${born} in ${place}.`, description: `Birthdays are dated in your own time zone. Birth date from the linked biography.` }));
+  }
+  for (const [name, date, cat, wiki, tags, rel] of ANNIV) {
+    const [oy, om, od] = date.split('-').map(Number);
+    const [y, d] = nextAnnual(now, om, od, userTz);
+    out.push(mk({ id: 'anniv-' + norm(name).replace(/\s/g, '-').slice(0, 30), title: `${name} (${y - oy} years)`, kind: 'countdown', category: cat, sub: 'Anniversaries', entity: 'occurrence', date: `${y}-${pad(om)}-${pad(d)}`, tz: userTz, tzLabel: 'your time zone',
+      verification: 'VERIFIED', sources: [WIKI(wiki)], computed: true, verifiedAt: KNOWLEDGE_REVIEWED, popularity: 2, tags: ['anniversary', ...tags], related: rel ? [rel] : [], series: 'anniversary', summary: `First happened on ${date}.`, description: 'Anniversaries are dated in your own time zone.' }));
+  }
+  return out;
+}
+
+/* ---------------- Adapter: calendar markers ---------------- */
+function calendarAdapter(now, userTz) {
+  const out = [], p = tzParts(now, userTz);
+  const dayStart = zonedToUtc(p.y, p.m, p.d, 0, 0, 0, userTz), [ny, nm, nd] = addDaysYMD(p.y, p.m, p.d, 1);
+  out.push(mk({ id: 'today', title: 'Today so far', kind: 'elapsed', category: 'Time', sub: 'Calendar', entity: 'ongoing', start: dayStart, scheduledEnd: zonedToUtc(ny, nm, nd, 0, 0, 0, userTz), tz: userTz, tzLabel: 'your time zone', verification: 'VERIFIED', sources: [{ name: 'Your device clock', url: '', kind: 'computed' }], computed: true, verifiedAt: now, popularity: 1, tags: ['today', 'day', 'calendar'],
+    summary: 'Counting from local midnight. Days with a DST change are 23 or 25 hours long.', description: 'The current day in your chosen time zone, counted from midnight.' }));
+  out.push(mk({ id: 'this-year', title: p.y + ' so far', kind: 'elapsed', category: 'Time', sub: 'Calendar', entity: 'ongoing', start: zonedToUtc(p.y, 1, 1, 0, 0, 0, userTz), scheduledEnd: zonedToUtc(p.y + 1, 1, 1, 0, 0, 0, userTz), tz: userTz, tzLabel: 'your time zone', verification: 'VERIFIED', sources: [{ name: 'Your device clock', url: '', kind: 'computed' }], computed: true, verifiedAt: now, popularity: 1, tags: ['year', 'calendar'],
+    summary: isLeap(p.y) ? 'A leap year: 366 days.' : 'A common year: 365 days.', description: 'Counting from local midnight on 1 January.' }));
+  const NY = [['Kiritimati', 'Kiribati', 'Pacific/Kiritimati', 'The first inhabited place to reach the new year (UTC+14).'], ['Tallinn', 'Estonia', 'Europe/Tallinn', 'Midnight in Estonia.'], ['New York', 'United States', 'America/New_York', 'The ball drops in Times Square.'], ['Pago Pago', 'American Samoa', 'Pacific/Pago_Pago', 'Among the last inhabited places to reach the new year (UTC−11).']];
+  for (const [city, country, tz, s] of NY) {
+    const y = tzParts(now, tz).y + 1;
+    out.push(mk({ id: 'newyear-' + norm(city).replace(/\s/g, '-'), title: `New Year ${y} in ${city}`, kind: 'countdown', category: 'People & Culture', sub: 'New Year', entity: 'occurrence', start: zonedToUtc(y, 1, 1, 0, 0, 0, tz), durationMs: 0, tz, city, country, verification: 'VERIFIED', sources: [{ name: 'IANA time zone database', url: 'https://www.iana.org/time-zones', kind: 'official' }], computed: true, verifiedAt: now, popularity: city === 'Tallinn' ? 3 : 2, strange: city !== 'Tallinn', tags: ['new year', 'midnight', 'celebration', city.toLowerCase()], summary: s, description: 'Local midnight, converted to UTC with the IANA time zone rules.' }));
+  }
+  let ly = p.y; while (!isLeap(ly) || daysUntilInTz(now, ly, 2, 29, userTz) < 0) ly++;
+  out.push(mk({ id: 'leap-day', title: 'Next leap day (29 February ' + ly + ')', kind: 'countdown', category: 'Time', sub: 'Calendar', entity: 'occurrence', date: `${ly}-02-29`, tz: userTz, tzLabel: 'your time zone', verification: 'VERIFIED', sources: [{ name: 'Gregorian calendar rule', url: 'https://en.wikipedia.org/wiki/Leap_year', kind: 'computed' }], computed: true, verifiedAt: now, popularity: 2, strange: true, tags: ['leap day', 'leap year', 'calendar', 'february'], summary: 'People born on 29 February get a real birthday.', description: 'Every year divisible by 4, except centuries not divisible by 400.' }));
+  return out;
+}
+
+/* ---------------- Adapters that need a server / partner ---------------- */
+const EXTERNAL_ADAPTERS = [
+  { id: 'usgs', name: 'USGS Earthquake Hazards — GeoJSON feed', layer: 3, dataType: 'Earthquakes (M2.5+), live', fetch: 'GET https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson', frequency: '1 min', rateLimit: 'Public feed; cache ≥ 60 s', attribution: 'U.S. Geological Survey', reliability: 'high', normalize: 'properties.time (ms UTC) → start; mag, place → title; id → dedupe key', needs: 'Server-side fetch. Public, no key. This hosted page cannot call outside hosts.' },
+  { id: 'll2', name: 'The Space Devs — Launch Library 2', layer: 1, dataType: 'Rocket launches', fetch: 'GET https://ll.thespacedevs.com/2.2.0/launch/upcoming/', frequency: '15 min', rateLimit: '15 req/h without key', attribution: 'The Space Devs', reliability: 'high', normalize: 'net → start; net_precision → precision; status.abbrev → status', needs: 'Server-side fetch; optional API key (LL2_API_KEY) for higher limits.' },
+  { id: 'jolpica', name: 'Jolpica F1 API (Ergast successor)', layer: 1, dataType: 'F1 session start times', fetch: 'GET https://api.jolpi.ca/ergast/f1/current.json', frequency: '6 h', rateLimit: '4 req/s, 500 req/h', attribution: 'Jolpica / Ergast', reliability: 'high', normalize: 'date + time → start (UTC); upgrades the day-precision F1 seed to second precision', needs: 'Server-side fetch. Public, no key.' },
+  { id: 'nager', name: 'Nager.Date — public holidays', layer: 1, dataType: 'Public holidays, 100+ countries', fetch: 'GET https://date.nager.at/api/v3/PublicHolidays/{year}/{country}', frequency: '1 day', rateLimit: 'Fair use', attribution: 'Nager.Date', reliability: 'high', normalize: 'date + country → day-precision occurrence', needs: 'Server-side fetch. Public, no key.' },
+  { id: 'peatus', name: 'Estonian public transport GTFS (peatus.ee)', layer: 2, dataType: 'Train & bus departures', fetch: 'GTFS static zip + realtime', frequency: '1 min', rateLimit: 'Per licence', attribution: 'Transpordiamet', reliability: 'medium', normalize: 'stop_times → departures per stop', needs: 'Server job to unpack GTFS; confirm licence terms before use.' },
+  { id: 'pos', name: 'Partner point-of-sale feed (e.g. "next pizza sold")', layer: 5, dataType: 'Real-time sales events from participating venues', fetch: 'Signed webhook POST /api/partners/{id}/events', frequency: 'push', rateLimit: 'Per partner', attribution: 'Participating business', reliability: 'depends on partner', normalize: 'Partner timestamp → start; HMAC-verified', needs: 'No partner has connected. Until one does, EVERY SECOND does not show "next pizza" clocks.' },
+];
+
+/* ---------------- Pipeline ---------------- */
+const ADAPTERS = [
+  { id: 'seed', name: 'Curated seed dataset', layer: 1, dataType: 'Elections, sport, missions, milestones', fetch: 'Bundled with the page', frequency: 'On publish', rateLimit: '—', attribution: 'Per-event sources', reliability: 'high', normalize: 'ISO/date + IANA zone → UTC ms', run: () => curatedSeed(), staleAfter: 120 * MS.d, isSeed: true },
+  { id: 'astro', name: 'Astronomy engine (Meeus)', layer: 1, dataType: 'Moon phases, seasons, meteor showers', fetch: 'Computed in browser', frequency: '10 min', rateLimit: '—', attribution: 'Meeus; IMO', reliability: 'high', normalize: 'JDE (TT) − ΔT → UTC ms', run: n => astronomyAdapter(n), staleAfter: 20 * MS.m },
+  { id: 'sun', name: 'Sunrise / sunset calculator', layer: 2, dataType: 'Daylight for 6 cities', fetch: 'Computed in browser', frequency: '10 min', rateLimit: '—', attribution: 'Sunrise equation', reliability: 'high', normalize: 'Julian date → UTC ms', run: n => sunAdapter(n), staleAfter: 20 * MS.m },
+  { id: 'holidays-ee', name: 'Estonian public holidays', layer: 1, dataType: 'Riigipühad', fetch: 'Computed from the law', frequency: '1 day', rateLimit: '—', attribution: 'Riigi Teataja', reliability: 'high', normalize: 'Local date in Europe/Tallinn', run: n => holidaysEE(n), staleAfter: 2 * MS.d },
+  { id: 'anniv', name: 'Birthdays & anniversaries', layer: 1, dataType: 'Recurring dates of public figures and history', fetch: 'Computed from documented dates', frequency: '1 day', rateLimit: '—', attribution: 'Wikipedia', reliability: 'high', normalize: 'Next occurrence in viewer time zone', run: (n, tz) => anniversariesAdapter(n, tz), staleAfter: 2 * MS.d },
+  { id: 'calendar', name: 'Calendar markers', layer: 1, dataType: 'Today, year, New Year, leap days', fetch: 'Computed in browser', frequency: '1 min', rateLimit: '—', attribution: 'IANA tz database', reliability: 'high', normalize: 'Local wall time → UTC via Intl', run: (n, tz) => calendarAdapter(n, tz), staleAfter: 5 * MS.m },
+  { id: 'community', name: 'Community submissions (moderated)', layer: 4, dataType: 'Local events from visitors', fetch: 'Shared database, live', frequency: 'live', rateLimit: '1 submission / 30 s per visitor', attribution: 'Submitter + their source link', reliability: 'medium', normalize: 'Form date + zone → UTC ms', run: null, staleAfter: Infinity },
+];
+
+function validateEvent(e) {
+  const errs = [];
+  if (!e.id || !e.title) errs.push('missing id/title');
+  if (!Number.isFinite(e.start)) errs.push('start is not a valid timestamp');
+  if (e.end != null && e.end < e.start) errs.push('end before start');
+  if (!['countdown', 'elapsed'].includes(e.kind)) errs.push('unknown kind');
+  if (e.kind === 'elapsed' && !e.sources.length) errs.push('elapsed clock without a documented start source');
+  return errs;
+}
+const dedupeKey = e => norm(e.title).replace(/\b(the|a|an)\b/g, '').replace(/\s+/g, ' ') + '|' + Math.floor(e.start / MS.d);
+/* ===== EVERY SECOND · app ===== */
+const SHARE_BASE = '';
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const userTzDefault = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } })();
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('es:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('es:' + k, JSON.stringify(v)); } catch { } },
+};
+const S = {
+  events: [], byId: new Map(), health: {}, logs: [], dupes: [], conflicts: [], firstSeen: new Map(), prevStarts: new Map(), lastStatus: new Map(),
+  overrides: {}, submissions: [], moderation: {}, config: { disabled: {} }, db: null, user: null, canAdmin: false, canWrite: null, myId: null,
+  prefs: Object.assign({ h12: false, tz: userTzDefault, favs: [], follows: [], hidden: [], notify: 'start' }, store.get('prefs', {})),
+  query: '', filters: { status: 'all', category: 'all', country: 'all', city: 'all', ver: 'all', sort: 'relevance', from: '', to: '', hFrom: '', hTo: '' },
+  timelineDay: 0, sixty: 'minute', lastIngest: 0, notified: new Set(), clockOffset: 0, rerenderPending: false, lastSubmit: 0,
+};
+const now = () => Date.now() + S.clockOffset;
+const savePrefs = () => store.set('prefs', S.prefs);
+function log(level, adapter, msg) { S.logs.unshift({ t: now(), level, adapter, msg }); if (S.logs.length > 300) S.logs.length = 300; }
+
+/* ================= ingestion pipeline ================= */
+function communityEvents() {
+  const out = [];
+  for (const sub of S.submissions) {
+    const mod = S.moderation[sub.id];
+    if (!mod || mod.decision !== 'approved') continue;
+    try {
+      const [y, m, d] = String(sub.date).split('-').map(Number);
+      let hh = 0, mi = 0; const hasTime = /^\d{2}:\d{2}$/.test(sub.time || '');
+      if (hasTime) [hh, mi] = sub.time.split(':').map(Number);
+      const tz = sub.tz || 'UTC';
+      out.push(mk({
+        id: 'c-' + sub.id, title: sub.title, kind: sub.kind === 'elapsed' ? 'elapsed' : 'countdown', category: sub.category || 'Everyday', sub: 'Community', entity: 'submitted',
+        start: zonedToUtc(y, m, d, hh, mi, 0, tz), date: hasTime ? undefined : `${y}-${pad(m)}-${pad(d)}`, precision: hasTime ? 'minute' : 'day', tz, city: sub.city, country: sub.country,
+        verification: mod.verified ? 'VERIFIED' : 'COMMUNITY SUBMITTED', confidence: mod.verified ? 'high' : 'low', community: true, popularity: 2, durationMs: sub.durationMin ? sub.durationMin * MS.m : 0,
+        sources: sub.sourceUrl ? [{ name: 'Submitted source', url: sub.sourceUrl, kind: 'community' }] : [], verifiedAt: mod.at || sub.createdAt, firstSeen: sub.createdAt,
+        summary: sub.description ? String(sub.description).slice(0, 140) : 'Community submission.', description: sub.description || '', tags: ['community', 'local'],
+      }));
+    } catch (err) { log('error', 'community', `Submission ${sub.id} could not be normalised: ${err.message}`); }
+  }
+  return out;
+}
+function ingest(reason = 'scheduled') {
+  const t0 = now(), all = [], seenKey = new Map();
+  S.dupes = []; S.conflicts = [];
+  for (const a of ADAPTERS) {
+    const h = S.health[a.id] = S.health[a.id] || { runs: 0, failures: 0 };
+    if (S.config.disabled[a.id]) { h.status = 'disabled'; continue; }
+    const st = performance.now();
+    let items = [];
+    try {
+      items = a.id === 'community' ? communityEvents() : a.run(t0, S.prefs.tz);
+      h.status = 'ok'; h.error = null;
+    } catch (err) { h.status = 'error'; h.error = err.message; h.failures++; log('error', a.id, 'Adapter failed: ' + err.message); }
+    let ok = 0;
+    for (const e of items) {
+      e.provenance = a.id;
+      const errs = validateEvent(e);
+      if (errs.length) { log('warn', a.id, `Rejected "${e.title}": ${errs.join(', ')}`); continue; }
+      const key = dedupeKey(e);
+      if (seenKey.has(key) && seenKey.get(key).id !== e.id) { S.dupes.push({ kept: seenKey.get(key).id, dropped: e.id, key }); continue; }
+      seenKey.set(key, e);
+      if (!S.firstSeen.has(e.id)) S.firstSeen.set(e.id, e.firstSeen || t0);
+      e.firstDiscovered = S.firstSeen.get(e.id);
+      e.lastUpdated = e.computed ? t0 : (e.verifiedAt || t0);
+      e.lastVerified = e.verifiedAt || t0;
+      if (!e.computed && S.prevStarts.has(e.id) && S.prevStarts.get(e.id) !== e.start) {
+        e.changes = [...e.changes, { t: t0, msg: `Start moved from ${new Date(S.prevStarts.get(e.id)).toISOString()} to ${new Date(e.start).toISOString()}` }];
+        e.lastUpdated = t0; log('info', a.id, `Schedule change detected for "${e.title}"`);
+      }
+      S.prevStarts.set(e.id, e.start);
+      all.push(e); ok++;
+    }
+    h.lastRun = t0; h.ms = performance.now() - st; h.count = ok; h.runs++;
+  }
+  // conflicts: same title from different adapters with different starts
+  const byTitle = new Map();
+  for (const e of all) { const k = norm(e.title); if (byTitle.has(k) && byTitle.get(k).provenance !== e.provenance && Math.abs(byTitle.get(k).start - e.start) > MS.h) S.conflicts.push([byTitle.get(k).id, e.id]); else byTitle.set(k, e); }
+  for (const [a, b] of S.conflicts) for (const id of [a, b]) { const e = all.find(x => x.id === id); if (e) e.conflict = true; }
+  // admin overrides: cancel, postpone, reschedule, merge
+  const map = new Map(all.map(e => [e.id, e]));
+  for (const o of Object.values(S.overrides)) {
+    const e = map.get(o.eventId); if (!e) continue;
+    if (o.type === 'merge' && map.get(o.into)) { map.delete(e.id); const into = map.get(o.into); into.aliases = [...(into.aliases || []), e.title]; into.changes = [...into.changes, { t: o.at, msg: `Merged duplicate "${e.title}" into this event` }]; continue; }
+    if (o.type === 'cancel') { e.override = 'cancelled'; e.verification = 'CANCELLED'; }
+    if (o.type === 'postpone') { e.override = 'postponed'; e.verification = 'RESCHEDULED'; }
+    if (o.type === 'reschedule' && Number.isFinite(o.newStart)) { e.changes = [...e.changes, { t: o.at, msg: `Rescheduled from ${new Date(e.start).toISOString()} to ${new Date(o.newStart).toISOString()}` }]; e.start = o.newStart; e.precision = o.precision || 'minute'; if (o.precision === 'day') { const p = tzParts(o.newStart, e.tz); e.date = [p.y, p.m, p.d]; } else e.date = undefined; e.verification = 'RESCHEDULED'; }
+    if (o.type !== 'reschedule' && o.type !== 'merge') e.changes = [...e.changes, { t: o.at, msg: (o.type === 'cancel' ? 'Cancelled' : 'Postponed') + (o.note ? ': ' + o.note : '') }];
+    e.lastUpdated = Math.max(e.lastUpdated, o.at || 0);
+  }
+  S.events = [...map.values()];
+  S.byId = new Map(S.events.map(e => [e.id, e]));
+  S.lastIngest = t0;
+  log('info', 'pipeline', `Ingest (${reason}): ${S.events.length} events, ${S.dupes.length} duplicates dropped, ${S.conflicts.length} conflicts flagged`);
+}
+
+/* ================= formatting ================= */
+const segHTML = segs => segs.map(([n, u]) => `<span class="n">${n}</span><span class="u">${u}</span>`).join('');
+function fmtTime(t, tz = S.prefs.tz, opts = {}) {
+  try { return new Intl.DateTimeFormat('en-GB', Object.assign({ timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: S.prefs.h12 }, opts)).format(new Date(t)); } catch { return new Date(t).toISOString(); }
+}
+const fmtDate = (t, tz = S.prefs.tz) => fmtTime(t, tz, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: undefined, minute: undefined });
+const fmtDT = (t, tz = S.prefs.tz) => fmtTime(t, tz, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+function tzAbbr(t, tz) { try { return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date(t)).find(p => p.type === 'timeZoneName').value; } catch { return tz; } }
+function ago(t) { const d = now() - t; if (d < MS.m) return 'just now'; if (d < MS.h) return Math.floor(d / MS.m) + ' min ago'; if (d < MS.d) return Math.floor(d / MS.h) + ' h ago'; return Math.floor(d / MS.d) + ' d ago'; }
+const PREC_NOTE = { second: '', minute: '±1 min', hour: '±1 h', day: 'date only', month: 'month only', year: 'year only' };
+const STATUS_LABEL = { upcoming: 'Upcoming', unconfirmed: 'Date not set', today: 'Today', live: 'Happening now', ongoing: 'In progress', completed: 'Completed', ended: 'Ended', awaiting: 'Awaiting confirmation', cancelled: 'Cancelled', postponed: 'Postponed' };
+function whenLabel(e) {
+  if (e.precision === 'year') return e.endBy ? 'Due by ' + e.endBy : 'Expected ' + new Date(e.start).getUTCFullYear();
+  if (e.precision === 'month') return 'Expected ' + new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(e.start));
+  if (e.precision === 'day') return fmtDate(e.start, e.tz);
+  return fmtDT(e.start);
+}
+function clock(e, t) {
+  const st = eventStatus(e, t);
+  const r = { st, cls: 'st-' + st, html: '', note: '' };
+  const est = ['ESTIMATED', 'PREDICTED'].includes(e.verification);
+  const unit = { second: 's', minute: 's', hour: 'h', day: 'd' }[e.precision] || 's';
+  if (st === 'cancelled') { r.html = '<span class="w">Cancelled</span>'; return r; }
+  if (st === 'postponed') { r.html = '<span class="w">Postponed</span>'; r.note = 'awaiting new date'; return r; }
+  if (e.kind === 'countdown') {
+    if (st === 'upcoming') {
+      if (e.precision === 'day') { const [y, m, d] = e.date; const n = daysUntilInTz(t, y, m, d, e.tz); r.html = n === 1 ? '<span class="w">Tomorrow</span>' : segHTML([[n, n === 1 ? ' day' : ' days']]); r.note = 'date only · time not set'; }
+      else { r.html = (est ? '<span class="tilde">~</span>' : '') + segHTML(fmtParts(calDiff(t, e.start), unit)); r.note = PREC_NOTE[e.precision]; }
+    } else if (st === 'unconfirmed') { r.html = '<span class="w">' + esc(whenLabel(e)) + '</span>'; r.note = 'no countdown until the date is confirmed'; }
+    else if (st === 'today') { r.html = '<span class="w">Today</span>'; r.note = 'start time not confirmed'; }
+    else if (st === 'live') { r.html = '<span class="pre">started</span>' + segHTML(fmtParts(calDiff(e.start, t), unit)) + '<span class="pre">ago</span>'; r.note = e.end ? 'ends ' + fmtTime(e.end) : (e.durationMs ? 'expected to last ~' + fmtPlain(0, e.durationMs, 'm') : ''); }
+    else if (st === 'awaiting') { r.html = '<span class="w">Awaiting confirmation</span>'; }
+    else { r.html = '<span class="pre">happened</span>' + segHTML(fmtParts(calDiff(e.end || e.start, t), e.precision === 'day' ? 'd' : 'm')) + '<span class="pre">ago</span>'; }
+  } else {
+    if (st === 'upcoming') { r.html = '<span class="pre">starts in</span>' + segHTML(fmtParts(calDiff(t, e.start), unit)); }
+    else if (st === 'ended') { r.html = segHTML(fmtParts(calDiff(e.start, e.end), unit === 's' ? 's' : unit)); r.note = 'final duration · ended ' + fmtDate(e.end); }
+    else if (e.precision === 'year' || e.precision === 'month') { const y = calDiff(e.start, t).y; r.html = (est ? '<span class="tilde">~</span>' : '') + segHTML([[y, ' years']]); r.note = 'start known to the ' + e.precision; }
+    else { r.html = (est ? '<span class="tilde">~</span>' : '') + segHTML(fmtParts(calDiff(e.start, t), unit)); r.note = PREC_NOTE[e.precision]; }
+  }
+  return r;
+}
+
+/* ================= selection helpers ================= */
+const visible = () => S.events.filter(e => !S.prefs.hidden.includes(e.category));
+const grp = (e, t = now()) => STATUS_GROUP[eventStatus(e, t)];
+const byStart = (a, b) => a.start - b.start;
+function upcoming(t = now()) { return visible().filter(e => e.kind === 'countdown' && ['upcoming', 'unconfirmed'].includes(eventStatus(e, t))).sort(byStart); }
+function liveNow(t = now()) { return visible().filter(e => ['live', 'today'].includes(eventStatus(e, t))); }
+function ongoing(t = now()) { return visible().filter(e => e.kind === 'elapsed' && eventStatus(e, t) === 'ongoing'); }
+function nextOfKind(pred) { return upcoming().find(e => pred(e) && eventStatus(e, now()) === 'upcoming') || upcoming().find(pred); }
+function milestones(t = now()) {
+  const out = [];
+  for (const e of ongoing(t)) {
+    if (e.computed || e.precision === 'year' || e.precision === 'month') continue;
+    const days = (t - e.start) / MS.d, sec = (t - e.start) / 1000;
+    const cands = [];
+    const y = calDiff(e.start, t).y + 1; cands.push({ at: addYearsClamp(e.start, y), label: `${y} years` });
+    const step = days > 5000 ? 1000 : days > 1000 ? 500 : 100; const nd = Math.ceil(days / step) * step; cands.push({ at: e.start + nd * MS.d, label: `${nd.toLocaleString('en-US')} days` });
+    const sstep = sec > 1e9 ? 1e8 : sec > 1e8 ? 1e7 : 1e6; const ns = Math.ceil(sec / sstep) * sstep; cands.push({ at: e.start + ns * 1000, label: `${ns.toLocaleString('en-US')} seconds` });
+    const c = cands.filter(c => c.at > t).sort((a, b) => a.at - b.at)[0];
+    if (c) out.push({ parent: e, at: c.at, label: c.label });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+/* ================= components ================= */
+const ICON = {
+  star: f => `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="${f ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
+  shuffle: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 7h3.5c2 0 3.2 1 4.3 2.7l1.4 2.6c1 1.7 2.3 2.7 4.3 2.7H20M17 12l3 3-3 3M4 17h3.5c1.4 0 2.4-.5 3.2-1.3M13.4 8.3C14.2 7.5 15.2 7 16.5 7H20M17 4l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  link: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+};
+function verChip(e) {
+  const v = e.verification, cls = { 'VERIFIED': 'v-ok', 'OFFICIAL SCHEDULE': 'v-ok', 'ESTIMATED': 'v-est', 'PREDICTED': 'v-est', 'COMMUNITY SUBMITTED': 'v-com', 'UNCONFIRMED': 'v-com', 'RESCHEDULED': 'v-warn', 'CANCELLED': 'v-warn' }[v] || '';
+  return `<span class="ver ${cls}">${esc(v)}</span>`;
+}
+function statusPill(st) { return `<span class="pill p-${STATUS_GROUP[st]} ${st === 'live' ? 'p-live' : ''}">${st === 'live' ? '<i class="dot"></i>' : ''}${STATUS_LABEL[st]}</span>`; }
+function place(e) { return [e.venue, e.city, e.country].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(', '); }
+function srcName(e) { const s = e.sources[0]; return s ? s.name : '—'; }
+function row(e, opts = {}) {
+  const t = now(), c = clock(e, t), fav = S.prefs.favs.includes(e.id);
+  const cls = ['row', c.cls, e.kind === 'elapsed' ? 'k-el' : 'k-cd', ['ESTIMATED', 'PREDICTED'].includes(e.verification) ? 'is-est' : '', ['COMMUNITY SUBMITTED', 'UNCONFIRMED'].includes(e.verification) ? 'is-unv' : '', e.conflict ? 'is-conf' : ''].join(' ');
+  const startTxt = e.kind === 'elapsed' ? 'Started ' + (e.precision === 'year' ? new Date(e.start).getUTCFullYear() : e.precision === 'day' ? fmtDate(e.start, e.tz) : fmtDT(e.start)) : whenLabel(e);
+  return `<article class="${cls}" data-id="${esc(e.id)}">
+    <div class="r-main">
+      <div class="r-eyebrow"><span class="cat">${esc(e.category)}${e.sub ? ' · ' + esc(e.sub) : ''}</span>${statusPill(c.st)}</div>
+      <a class="r-title" href="#e.${esc(e.id)}">${esc(e.title)}</a>
+      <div class="r-meta">${place(e) ? `<span>${esc(place(e))}</span>` : ''}<span>${esc(startTxt)}${e.precision !== 'day' && e.precision !== 'year' && e.precision !== 'month' ? ' · ' + esc(tzAbbr(e.start, S.prefs.tz)) : ''}</span></div>
+    </div>
+    <div class="r-clock"><div class="clk" data-clk="${esc(e.id)}">${c.html}</div><div class="clk-note" data-note="${esc(e.id)}">${esc(c.note)}</div></div>
+    ${opts.compact ? '' : `<div class="r-side">${verChip(e)}<span class="src" title="${esc(srcName(e))}">${esc(srcName(e))}</span><span class="upd">Updated ${esc(ago(e.lastUpdated))} · ${esc(e.confidence)} confidence</span></div>`}
+    <button class="fav ${fav ? 'on' : ''}" data-fav="${esc(e.id)}" aria-label="${fav ? 'Remove from saved' : 'Save event'}" aria-pressed="${fav}">${ICON.star(fav)}</button>
+  </article>`;
+}
+function bigCard(e) {
+  const c = clock(e, now());
+  return `<a class="big ${c.cls}" href="#e.${esc(e.id)}"><div class="r-eyebrow"><span class="cat">${esc(e.category)}${e.sub ? ' · ' + esc(e.sub) : ''}</span>${statusPill(c.st)}</div>
+    <div class="big-title">${esc(e.title)}</div><div class="clk big-clk" data-clk="${esc(e.id)}">${c.html}</div><div class="clk-note" data-note="${esc(e.id)}">${esc(c.note)}</div>
+    <div class="big-meta">${esc(place(e) || e.summary || '')}</div></a>`;
+}
+function tile(label, e, emptyMsg) {
+  if (!e) return `<div class="tile empty"><div class="t-label">${esc(label)}</div><div class="t-empty">${esc(emptyMsg)}</div></div>`;
+  const c = clock(e, now());
+  return `<a class="tile ${c.cls}" href="#e.${esc(e.id)}"><div class="t-label">${esc(label)}</div><div class="t-title">${esc(e.title)}</div><div class="clk" data-clk="${esc(e.id)}">${c.html}</div><div class="clk-note" data-note="${esc(e.id)}">${esc(c.note)}</div></a>`;
+}
+const section = (title, sub, body, cls = '') => `<section class="sec ${cls}"><header class="sec-h"><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</header>${body}</section>`;
+const list = (evs, empty = 'Nothing here right now.', opts) => evs.length ? `<div class="list">${evs.map(e => row(e, opts)).join('')}</div>` : `<p class="empty-state">${esc(empty)}</p>`;
+
+/* ================= views ================= */
+function viewHome() {
+  const t = now();
+  const live = [...liveNow(t).sort((a, b) => b.popularity - a.popularity), ...ongoing(t).filter(e => e.start > t - 45 * MS.d && e.category !== 'Time' && (e.sub !== 'Sun' || e.city === 'Tallinn')).sort((a, b) => b.popularity - a.popularity || b.start - a.start)].slice(0, 4);
+  let sunSeen = 0; const next = upcoming(t).filter(e => eventStatus(e, t) === 'upcoming').filter(e => e.sub !== 'Sun' || sunSeen++ < 1).slice(0, 9);
+  const big = upcoming(t).filter(e => e.popularity >= 4).slice(0, 8);
+  const strange = visible().filter(e => e.strange && grp(e, t) !== 'completed').sort((a, b) => (hashStr(a.id + new Date(t).getUTCDate()) % 97) - (hashStr(b.id + new Date(t).getUTCDate()) % 97)).slice(0, 6);
+  const longest = ongoing(t).filter(e => e.entity !== 'historical-since' && e.category !== 'Time').sort(byStart).slice(0, 7);
+  const just = visible().filter(e => { const st = eventStatus(e, t); const ref = e.end || e.start; return (['completed', 'ended'].includes(st) && t - ref < 21 * MS.d) || (st === 'ongoing' && !e.computed && t - e.start < 3 * MS.d); }).sort((a, b) => (b.end || b.start) - (a.end || a.start)).slice(0, 6);
+  const favs = S.prefs.favs.map(id => S.byId.get(id)).filter(Boolean);
+  const followed = S.prefs.follows.length ? visible().filter(e => S.prefs.follows.some(f => matchScore(e, [f]))).filter(e => grp(e, t) !== 'completed').sort(byStart).slice(0, 6) : [];
+  const kinds = [
+    ['Next F1 race', nextOfKind(e => e.sub === 'Formula 1'), ''], ['Next election', nextOfKind(e => e.sub === 'Elections'), ''],
+    ['Next eclipse', nextOfKind(e => e.sub === 'Eclipses'), ''], ['Next full moon', S.byId.get('full-moon-next'), ''],
+    ['Next meteor shower peak', nextOfKind(e => e.sub === 'Meteor showers'), ''], ['Next holiday in Estonia', nextOfKind(e => e.sub === 'Public holidays'), ''],
+    ['Next famous birthday', nextOfKind(e => e.sub === 'Birthdays'), ''], ['Next local event', nextOfKind(e => e.community), 'No approved community events yet. Submit one.'],
+    ['Next rocket launch', null, 'No launch feed connected yet (Launch Library 2 needs a server).'],
+  ];
+  const ms = milestones(t).slice(0, 5);
+  return `
+  <div class="home-grid">
+    <div class="hero-col">${section('Happening right now', 'Started and still going.', live.length ? `<div class="bigs">${live.map(bigCard).join('')}</div>` : '<p class="empty-state">Nothing tracked is live this minute.</p>', 'sec-now')}</div>
+    <div class="side-col">${section('Coming up next', 'Ordered by start time.', list(next, '', { compact: true }), 'sec-next')}</div>
+  </div>
+  ${favs.length || followed.length ? section('Your watchlist', 'Saved events and topics you follow.', list([...favs, ...followed.filter(e => !favs.includes(e))].slice(0, 8))) : ''}
+  ${section('The next event of its kind', '', `<div class="tiles">${kinds.map(([l, e, m]) => tile(l, e, m)).join('')}</div>`)}
+  ${section('Today, around the world', 'Everything tracked for today in your time zone, in order.', viewTodayTimeline())}
+  <div class="two">
+    ${section('The next big things', 'Politics, sport, science and culture.', list(big, '', { compact: true }))}
+    ${section('Longest running', 'Ongoing, ordered by how long it has lasted.', list(longest, '', { compact: true }))}
+  </div>
+  <div class="two">
+    ${section('Strange but true', 'Odd, obscure and real. Each one has a source.', list(strange, '', { compact: true }))}
+    ${section('Just happened', 'Recently started or ended.', list(just, 'Nothing has ended in the last three weeks.', { compact: true }))}
+  </div>
+  ${section('Next milestone', 'Round numbers that ongoing events are about to hit.', ms.length ? `<div class="list">${ms.map(m => msRow(m)).join('')}</div>` : '')}
+  <p class="foot-note">${S.events.length} events from ${Object.values(S.health).filter(h => h.status === 'ok').length} working sources. Seed data is labelled with its review date; computed events are worked out in your browser every few minutes. Nothing on this page is a fake live feed.</p>`;
+}
+function msRow(m) {
+  const id = 'ms:' + m.parent.id, t = now();
+  MS_REG.set(id, m);
+  return `<article class="row k-cd st-upcoming"><div class="r-main"><div class="r-eyebrow"><span class="cat">Milestone</span></div><a class="r-title" href="#e.${esc(m.parent.id)}">${esc(m.parent.title)} reaches ${esc(m.label)}</a><div class="r-meta"><span>${esc(fmtDT(m.at))}</span></div></div>
+  <div class="r-clock"><div class="clk" data-clk="${esc(id)}">${segHTML(fmtParts(calDiff(t, m.at)))}</div><div class="clk-note">computed from the start time</div></div></article>`;
+}
+const MS_REG = new Map();
+function hashStr(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); }
+function viewTodayTimeline() {
+  const t = now(), tz = S.prefs.tz, p = tzParts(t, tz);
+  const d0 = zonedToUtc(p.y, p.m, p.d, 0, 0, 0, tz), [ny, nm, nd] = addDaysYMD(p.y, p.m, p.d, 1), d1 = zonedToUtc(ny, nm, nd, 0, 0, 0, tz);
+  const items = visible().filter(e => {
+    if (e.precision === 'day' && e.kind === 'countdown') { const [y, m, d] = e.date; return daysUntilInTz(t, y, m, d, e.tz) === 0; }
+    if (e.kind === 'countdown') return e.start >= d0 && e.start < d1;
+    return (e.start >= d0 && e.start < d1 && e.category !== 'Time') || (e.end && e.end >= d0 && e.end < d1);
+  }).sort(byStart);
+  if (!items.length) return '<p class="empty-state">Nothing tracked for today.</p>';
+  let nowPlaced = false, html = '<ol class="tl">';
+  for (const e of items) {
+    const at = e.kind === 'elapsed' && e.end && e.end >= d0 && e.end < d1 && e.start < d0 ? e.end : e.start;
+    if (!nowPlaced && at > t) { html += `<li class="tl-now"><span class="tl-t" data-nowclock>${esc(fmtTime(t, tz, { second: '2-digit' }))}</span><span class="tl-l">Now</span></li>`; nowPlaced = true; }
+    const c = clock(e, t);
+    const tt = e.precision === 'day' ? 'All day' : fmtTime(at, tz);
+    html += `<li class="${c.cls}"><span class="tl-t">${esc(tt)}</span><a href="#e.${esc(e.id)}" class="tl-l">${esc(e.title)}<span class="tl-c">${esc(place(e) || e.category)}</span></a><span class="clk sm" data-clk="${esc(e.id)}">${c.html}</span></li>`;
+  }
+  if (!nowPlaced) html += `<li class="tl-now"><span class="tl-t" data-nowclock>${esc(fmtTime(t, tz, { second: '2-digit' }))}</span><span class="tl-l">Now</span></li>`;
+  return html + '</ol>';
+}
+function viewFeed(kind) {
+  const t = now();
+  const evs = kind === 'countdown'
+    ? [...liveNow(t).filter(e => e.kind === 'countdown'), ...upcoming(t)]
+    : ongoing(t).sort((a, b) => b.popularity - a.popularity || byStart(a, b));
+  const cats = [...new Set(evs.map(e => e.category))].sort();
+  const f = S.feedCat || 'all';
+  const shown = f === 'all' ? evs : evs.filter(e => e.category === f);
+  const archive = kind === 'elapsed' ? visible().filter(e => e.kind === 'elapsed' && eventStatus(e, t) === 'ended') : visible().filter(e => e.kind === 'countdown' && ['completed', 'awaiting', 'cancelled'].includes(eventStatus(e, t))).sort((a, b) => b.start - a.start).slice(0, 12);
+  return `<div class="feed-head"><h1>${kind === 'countdown' ? 'Up next' : 'In progress'}</h1><p>${kind === 'countdown' ? 'How long until it starts. When a clock reaches zero the event switches to happening now, then completed.' : 'How long it has been going. These clocks count up from a documented start time; they never count down to an end.'}</p></div>
+  <div class="chips" role="tablist">${['all', ...cats].map(c => `<button class="chip ${c === f ? 'on' : ''}" data-feedcat="${esc(c)}">${c === 'all' ? 'All' : esc(c)}</button>`).join('')}</div>
+  ${list(shown)}
+  ${section(kind === 'countdown' ? 'Archive · already happened' : 'Archive · ended, final durations kept', '', list(archive, 'Nothing archived yet.'))}`;
+}
+function applyFilters(evs, q) {
+  const t = now(), F = S.filters;
+  let out = evs;
+  if (F.status !== 'all') out = out.filter(e => grp(e, t) === F.status || (F.status === 'live' && ['live'].includes(grp(e, t))));
+  if (F.category !== 'all') out = out.filter(e => e.category === F.category);
+  if (F.country !== 'all') out = out.filter(e => e.country === F.country);
+  if (F.city !== 'all') out = out.filter(e => e.city === F.city);
+  if (F.ver !== 'all') out = out.filter(e => F.ver === 'verified' ? ['VERIFIED', 'OFFICIAL SCHEDULE'].includes(e.verification) : F.ver === 'estimated' ? ['ESTIMATED', 'PREDICTED'].includes(e.verification) : ['COMMUNITY SUBMITTED', 'UNCONFIRMED'].includes(e.verification));
+  if (F.from) { const [y, m, d] = F.from.split('-').map(Number); const a = zonedToUtc(y, m, d, 0, 0, 0, S.prefs.tz); out = out.filter(e => (e.end || e.start) >= a); }
+  if (F.to) { const [y, m, d] = F.to.split('-').map(Number); const b = zonedToUtc(y, m, d, 23, 59, 59, S.prefs.tz); out = out.filter(e => e.start <= b); }
+  if (F.hFrom !== '' || F.hTo !== '') { const a = F.hFrom === '' ? 0 : +F.hFrom, b = F.hTo === '' ? 24 : +F.hTo; out = out.filter(e => { if (e.precision === 'day' || e.precision === 'month' || e.precision === 'year') return false; const h = tzParts(e.start, S.prefs.tz).h; return h >= a && h < b; }); }
+  if (q.window) {
+    let [a, b] = Array.isArray(q.window) ? q.window : [0, 0];
+    if (q.window === 'today' || q.window === 'tomorrow') { const p = tzParts(t, S.prefs.tz); const [y, m, d] = q.window === 'today' ? [p.y, p.m, p.d] : addDaysYMD(p.y, p.m, p.d, 1); a = zonedToUtc(y, m, d, 0, 0, 0, S.prefs.tz); const [y2, m2, d2] = addDaysYMD(y, m, d, 1); b = zonedToUtc(y2, m2, d2, 0, 0, 0, S.prefs.tz); }
+    out = out.filter(e => (e.start >= a && e.start < b && e.precision !== 'month' && e.precision !== 'year') || (q.window === 'today' && eventStatus(e, t) === 'live'));
+  }
+  if (q.startedAgo) { const target = t - q.startedAgo, tol = Math.max(q.startedAgo * 0.1, 30 * MS.m); out = out.filter(e => Math.abs(e.start - target) <= tol && e.start <= t); }
+  if (q.mode === 'elapsed') out = out.filter(e => e.kind === 'elapsed' || ['live', 'completed', 'ended'].includes(eventStatus(e, t)));
+  if (q.mode === 'countdown') out = out.filter(e => e.kind === 'countdown' && ['upcoming', 'unconfirmed', 'today'].includes(eventStatus(e, t)));
+  if (q.mode === 'now') out = out.filter(e => ['live', 'today', 'ongoing'].includes(eventStatus(e, t)));
+  return out;
+}
+function sortEvents(evs, how, scores) {
+  const t = now(), dur = e => (e.end && e.end < t ? e.end : t) - e.start;
+  const fn = {
+    relevance: (a, b) => (scores.get(b.id) || 0) - (scores.get(a.id) || 0) || Math.abs(a.start - t) - Math.abs(b.start - t),
+    nearest: (a, b) => { const ua = a.start >= t ? a.start - t : Infinity, ub = b.start >= t ? b.start - t : Infinity; return ua - ub || byStart(a, b); },
+    longest: (a, b) => dur(b) - dur(a), recent: (a, b) => { const ra = a.start <= t ? t - a.start : Infinity, rb = b.start <= t ? t - b.start : Infinity; return ra - rb; },
+    updated: (a, b) => b.lastUpdated - a.lastUpdated, popularity: (a, b) => b.popularity - a.popularity || byStart(a, b),
+  }[how] || (() => 0);
+  return [...evs].sort(fn);
+}
+function search(qs) {
+  const q = parseQuery(qs || '', now());
+  const scores = new Map();
+  let evs = visible().filter(e => { const s = matchScore(e, q.terms); if (s) scores.set(e.id, s); return s > 0; });
+  evs = applyFilters(evs, q);
+  let how = S.filters.sort;
+  if (how === 'relevance' && q.sort === 'longest') how = 'longest';
+  if (how === 'relevance' && (q.mode === 'countdown' || q.window)) how = 'nearest';
+  if (how === 'relevance' && q.startedAgo) how = 'recent';
+  if (how === 'relevance' && !q.terms.length) how = 'nearest';
+  evs = sortEvents(evs, how, scores);
+  return { q, evs };
+}
+function opt(v, cur, label) { return `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label ?? v)}</option>`; }
+function viewExplore() {
+  const { q, evs } = search(S.query);
+  const all = S.events, F = S.filters;
+  const cats = [...new Set(all.map(e => e.category))].sort(), countries = [...new Set(all.map(e => e.country).filter(Boolean))].sort(), cities = [...new Set(all.map(e => e.city).filter(Boolean))].sort();
+  const answer = q.firstOnly && evs[0] ? `<div class="answer"><div class="a-label">Answer</div>${row(evs[0])}</div>` : '';
+  const examples = ['When is the next Spanish election?', 'How long has the International Space Station been operating?', 'What concert happens next in Tallinn?', 'What happens in the next 10 minutes?', 'What has been running for the longest?', 'What is the next eclipse?', 'What major events are happening tomorrow?', 'What started exactly one hour ago?'];
+  return `<div class="feed-head"><h1>Explore</h1><p>Search events, people, places and kinds of things. Questions work too.</p></div>
+  <form class="bigsearch" id="exploreForm" role="search"><label for="q2" class="sr">Search</label>${ICON.search}<input id="q2" name="q2" type="search" value="${esc(S.query)}" placeholder="Try: next eclipse, Tallinn, how long ISS…" autocomplete="off"><button class="btn">Search</button></form>
+  <div class="examples">${examples.map(x => `<button class="ex" data-q="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+  <div class="filters">
+    <label>Status<select id="f-status">${opt('all', F.status, 'All')}${opt('upcoming', F.status, 'Upcoming')}${opt('live', F.status, 'Happening now / today')}${opt('ongoing', F.status, 'Ongoing')}${opt('completed', F.status, 'Completed')}</select></label>
+    <label>Category<select id="f-category">${opt('all', F.category, 'All')}${cats.map(c => opt(c, F.category)).join('')}</select></label>
+    <label>Country<select id="f-country">${opt('all', F.country, 'All')}${countries.map(c => opt(c, F.country)).join('')}</select></label>
+    <label>City<select id="f-city">${opt('all', F.city, 'All')}${cities.map(c => opt(c, F.city)).join('')}</select></label>
+    <label>Trust<select id="f-ver">${opt('all', F.ver, 'All')}${opt('verified', F.ver, 'Verified / official')}${opt('estimated', F.ver, 'Estimated / predicted')}${opt('community', F.ver, 'Community / unconfirmed')}</select></label>
+    <label>From<input id="f-from" type="date" value="${esc(F.from)}"></label><label>To<input id="f-to" type="date" value="${esc(F.to)}"></label>
+    <label>Hours<span class="hrs"><select id="f-hFrom">${opt('', F.hFrom, 'any')}${[...Array(24).keys()].map(h => opt(String(h), F.hFrom, pad(h) + ':00')).join('')}</select>–<select id="f-hTo">${opt('', F.hTo, 'any')}${[...Array(24).keys()].map(h => opt(String(h + 1), F.hTo, pad(h + 1) + ':00')).join('')}</select></span></label>
+    <label>Sort<select id="f-sort">${opt('relevance', F.sort, 'Best match')}${opt('nearest', F.sort, 'Nearest start')}${opt('longest', F.sort, 'Longest elapsed')}${opt('recent', F.sort, 'Most recently started')}${opt('updated', F.sort, 'Most recently updated')}${opt('popularity', F.sort, 'Popularity')}</select></label>
+    <button class="btn ghost" id="f-reset" type="button">Reset</button>
+  </div>
+  <div class="browse"><span class="b-label">Browse</span>${cats.map(c => `<button class="chip ${F.category === c ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+  ${answer}
+  <p class="count">${evs.length} result${evs.length === 1 ? '' : 's'}${q.terms.length ? ' for “' + esc(q.terms.join(' ')) + '”' : ''}${q.window ? ' · time window applied' : ''}${q.mode ? ' · ' + ({ elapsed: 'in-progress clocks', countdown: 'upcoming', now: 'happening now' }[q.mode]) : ''}</p>
+  ${list(evs.slice(0, 120), q.terms.includes('concert') || q.terms.includes('pizza') || q.terms.includes('train') ? 'No source for this kind of event is connected yet. Concert, transport and venue feeds need a server-side integration; see Admin › Sources.' : 'No tracked events match. Try fewer words or clear the filters.')}`;
+}
+function viewDetail(id) {
+  const e = S.byId.get(id);
+  if (!e) return `<div class="feed-head"><h1>Event not found</h1><p>This event isn't in the current dataset. It may have been merged, or it was a community submission that is no longer approved.</p><p><a href="#explore">Search all events</a></p></div>`;
+  const t = now(), c = clock(e, t), fav = S.prefs.favs.includes(e.id);
+  const parent = e.parent && S.byId.get(e.parent);
+  const children = S.events.filter(x => x.parent === e.id).sort(byStart);
+  const siblings = parent ? S.events.filter(x => x.parent === e.parent && x.id !== e.id).sort(byStart) : [];
+  const related = [...e.related.map(r => S.byId.get(r)).filter(Boolean), ...S.events.filter(x => x.id !== e.id && x.sub === e.sub && !e.related.includes(x.id) && x.parent !== e.parent).slice(0, 4)];
+  const series = e.series ? S.events.filter(x => x.series === e.series && x.id !== e.id).sort(byStart).slice(0, 6) : [];
+  const editions = [];
+  if (e.prevOcc) editions.push(['Previous occurrence', e.prevOcc]);
+  if (e.nextOcc && e.nextOcc !== e.start) editions.push(['Following occurrence', e.nextOcc]);
+  if (e.series === 'birthday' || e.series === 'anniversary') { const [y, m, d] = e.date; editions.push(['Previous', zonedToUtc(y - 1, m, d, 0, 0, 0, e.tz)], ['Following', zonedToUtc(y + 1, m, d, 0, 0, 0, e.tz)]); }
+  const durNow = e.kind === 'elapsed' && t > e.start ? ((e.end && e.end < t ? e.end : t) - e.start) : null;
+  let compare = '';
+  if (durNow) {
+    const others = S.events.filter(x => x.kind === 'elapsed' && x.id !== e.id && !x.computed && x.start < t).map(x => ({ x, d: (x.end && x.end < t ? x.end : t) - x.start }));
+    const shorter = others.filter(o => o.d < durNow).sort((a, b) => b.d - a.d)[0], longer = others.filter(o => o.d > durNow).sort((a, b) => a.d - b.d)[0];
+    compare = `<ul class="cmp">${shorter ? `<li>Already longer than <a href="#e.${esc(shorter.x.id)}">${esc(shorter.x.title)}</a> <span class="mono">(${esc(fmtPlain(0, shorter.d, 'd'))})</span></li>` : ''}${longer ? `<li>Still shorter than <a href="#e.${esc(longer.x.id)}">${esc(longer.x.title)}</a> <span class="mono">(${esc(fmtPlain(0, longer.d, 'd'))})</span></li>` : ''}<li>In seconds: <span class="mono" data-secs="${esc(e.id)}">${Math.floor(durNow / 1000).toLocaleString('en-US')}</span></li></ul>`;
+  }
+  const timesBlock = e.precision === 'day' ? `<dt>Date</dt><dd>${esc(fmtDate(e.start, e.tz))} <span class="muted">(${esc(e.tzLabel || e.tz)})</span></dd><dt>Start time</dt><dd>Not confirmed. The clock counts days, not seconds.</dd>`
+    : e.precision === 'month' || e.precision === 'year' ? `<dt>Date</dt><dd>${esc(whenLabel(e))}. No exact date has been confirmed.</dd>`
+      : `<dt>${e.kind === 'elapsed' ? 'Started' : 'Starts'} (your time)</dt><dd>${esc(fmtDT(e.start))} ${esc(tzAbbr(e.start, S.prefs.tz))}</dd><dt>UTC</dt><dd class="mono">${esc(new Date(e.start).toISOString().replace('.000', ''))}</dd>${e.tz && e.tz !== 'UTC' ? `<dt>Local (${esc(e.tz)})</dt><dd>${esc(fmtDT(e.start, e.tz))} ${esc(tzAbbr(e.start, e.tz))}</dd>` : ''}<dt>Precision</dt><dd>${esc({ second: 'to the second', minute: 'to about a minute', hour: 'to the hour' }[e.precision])}</dd>`;
+  return `<div class="detail">
+    <nav class="crumbs"><a href="#home">Home</a> / <a href="#explore" data-cat-link="${esc(e.category)}">${esc(e.category)}</a>${e.sub ? ' / ' + esc(e.sub) : ''}</nav>
+    <div class="d-top"><div class="r-eyebrow">${statusPill(c.st)}${verChip(e)}${e.conflict ? '<span class="ver v-warn">SOURCES DISAGREE</span>' : ''}</div>
+      <h1>${esc(e.title)}</h1><p class="lede">${esc(e.summary || '')}</p>
+      <div class="clk huge ${c.cls}" data-clk="${esc(e.id)}">${c.html}</div><div class="clk-note" data-note="${esc(e.id)}">${esc(c.note)}</div>
+      ${e.scheduledEnd ? `<p class="end-note">Scheduled end: <strong>${esc(fmtDT(e.scheduledEnd))}</strong>. Shown separately; the clock keeps counting up.</p>` : ''}
+      ${e.kind === 'elapsed' && e.end && e.end <= t ? `<p class="end-note">Ended ${esc(fmtDT(e.end))}. Final duration preserved above.</p>` : ''}
+      <div class="d-actions"><button class="btn ${fav ? '' : 'ghost'}" data-fav="${esc(e.id)}">${ICON.star(fav)} ${fav ? 'Saved' : 'Save'}</button><button class="btn ghost" data-share="${esc(e.id)}">${ICON.link} Copy link</button><button class="btn ghost" data-random>${ICON.shuffle} Something else</button></div>
+      <div class="sharebox" id="sharebox" hidden><label for="shareUrl" class="sr">Link</label><input id="shareUrl" readonly><span id="shareMsg"></span></div>
+    </div>
+    <div class="d-grid">
+      <div class="d-body">
+        ${e.description ? `<h2>About</h2><p>${esc(e.description)}</p>` : ''}
+        ${compare ? `<h2>For comparison</h2>${compare}` : ''}
+        ${e.milestones.length ? `<h2>Milestones</h2><ol class="tl small">${e.milestones.sort((a, b) => a.t - b.t).map(m => `<li class="${m.t <= t ? 'past' : ''}"><span class="tl-t">${esc(fmtDate(m.t, 'UTC'))}</span><span class="tl-l">${esc(m.label)}</span><span class="clk sm mono">${esc(fmtPlain(m.t, t, 'd'))} ${m.t <= t ? 'ago' : 'to go'}</span></li>`).join('')}</ol>` : ''}
+        ${parent ? `<h2>Part of</h2>${list([parent], '', { compact: true })}` : ''}
+        ${children.length ? `<h2>Events in this series</h2>${list(children, '', { compact: true })}` : ''}
+        ${siblings.length ? `<h2>Other events in ${esc(parent.title)}</h2>${list(siblings, '', { compact: true })}` : ''}
+        ${editions.length ? `<h2>Previous and future editions</h2><ul class="eds">${editions.map(([l, at]) => `<li><span>${esc(l)}</span><span class="mono">${esc(e.precision === 'day' ? fmtDate(at, e.tz) : fmtDT(at))}</span><span class="muted mono">${esc(at < t ? fmtPlain(at, t, 'd') + ' ago' : 'in ' + fmtPlain(t, at, 'd'))}</span></li>`).join('')}</ul>` : ''}
+        ${series.length ? `<h2>More in this series</h2>${list(series, '', { compact: true })}` : ''}
+        ${related.length ? `<h2>Related</h2>${list(related.slice(0, 6), '', { compact: true })}` : ''}
+      </div>
+      <aside class="d-facts"><dl>
+        ${timesBlock}
+        <dt>Status</dt><dd>${esc(STATUS_LABEL[c.st])}</dd>
+        ${place(e) ? `<dt>Location</dt><dd>${esc(place(e))}${e.lat != null ? ` <span class="mono muted">${e.lat.toFixed(3)}, ${e.lon.toFixed(3)}</span>` : ''}</dd>` : ''}
+        <dt>Type</dt><dd>${esc({ scheduled: 'Scheduled event', occurrence: 'Single occurrence', series: 'Recurring series / season', ongoing: 'Ongoing condition', historical: 'Historical (ended)', 'historical-since': 'Time since a historical event', 'recurring-since': 'Time since previous occurrence', submitted: 'User-submitted event', predicted: 'Predicted event' }[e.entity] || e.entity)}${e.kind === 'countdown' ? ' · counts down' : ' · counts up'}</dd>
+        <dt>Confidence</dt><dd>${esc(e.confidence)}</dd>
+        <dt>Sources</dt><dd><ul class="srcs">${e.sources.map((s, i) => `<li>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a>` : esc(s.name)} <span class="muted">${i === 0 ? 'primary' : 'secondary'} · ${esc(s.kind)}</span></li>`).join('') || '<li>None</li>'}</ul></dd>
+        <dt>Last verified</dt><dd>${esc(e.computed ? 'Computed ' + ago(e.lastVerified) : fmtDate(e.lastVerified, 'UTC'))}</dd>
+        <dt>First discovered</dt><dd>${esc(fmtDT(e.firstDiscovered))}</dd>
+        <dt>Data from</dt><dd>${esc((ADAPTERS.find(a => a.id === e.provenance) || {}).name || e.provenance)}</dd>
+        <dt>Change history</dt><dd>${e.changes.length ? `<ul class="srcs">${e.changes.map(ch => `<li><span class="mono muted">${esc(fmtDate(ch.t, 'UTC'))}</span> ${esc(ch.msg)}</li>`).join('')}</ul>` : 'No schedule changes recorded.'}</dd>
+        ${e.aliases ? `<dt>Also known as</dt><dd>${esc(e.aliases.join(', '))}</dd>` : ''}
+      </dl></aside>
+    </div></div>`;
+}
+function viewTimeline() {
+  const t = now(), off = S.timelineDay, tz = S.prefs.tz, p = tzParts(t, tz), [y, m, d] = addDaysYMD(p.y, p.m, p.d, off);
+  const a = zonedToUtc(y, m, d, 0, 0, 0, tz), span = Math.max(1, S.timelineSpan || 7), [y2, m2, d2] = addDaysYMD(y, m, d, span), b = zonedToUtc(y2, m2, d2, 0, 0, 0, tz);
+  const evs = visible().filter(e => e.precision !== 'month' && e.precision !== 'year' && ((e.start >= a && e.start < b) || (e.end && e.end >= a && e.end < b))).sort(byStart);
+  const ongoingThen = visible().filter(e => e.kind === 'elapsed' && e.start < a && (!e.end || e.end > a) && !e.computed);
+  const groups = new Map();
+  for (const e of evs) { const at = e.start >= a ? e.start : e.end; const k = e.precision === 'day' ? e.date.join('-') : (() => { const q = tzParts(at, tz); return [q.y, q.m, q.d].join('-'); })(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
+  const jumps = [['Today', 0], ['+1 week', 7], ['+1 month', 30], ['+3 months', 91], ['+1 year', 365], ['−1 month', -30], ['−1 year', -365]];
+  return `<div class="feed-head"><h1>Move through time</h1><p>Drag the slider to see what is scheduled on any day, and what was already under way by then.</p></div>
+  <div class="tl-ctrl"><label for="tlRange" class="sr">Day offset</label><input id="tlRange" type="range" min="-730" max="1460" value="${off}" step="1"><div class="tl-sel"><strong>${esc(fmtDate(a, tz))}</strong> <span class="muted">${off === 0 ? 'today' : off > 0 ? '+' + off + ' days' : off + ' days'}</span>
+  <label class="inline">Window<select id="tlSpan">${[1, 7, 30, 90].map(n => opt(String(n), String(span), n === 1 ? '1 day' : n + ' days')).join('')}</select></label></div>
+  <div class="chips">${jumps.map(([l, n]) => `<button class="chip" data-jump="${n}">${l}</button>`).join('')}</div></div>
+  ${groups.size ? [...groups].map(([k, es]) => { const [yy, mm, dd] = k.split('-').map(Number); return `<h3 class="day-h">${esc(fmtDate(zonedToUtc(yy, mm, dd, 12, 0, 0, tz), tz))}</h3>${list(es, '', { compact: true })}`; }).join('') : '<p class="empty-state">Nothing tracked in this window. Try a wider window or another date.</p>'}
+  ${section('Already under way on ' + esc(fmtDate(a, tz)), 'Long-running events that had started by then.', `<div class="mini">${ongoingThen.sort(byStart).map(e => `<a href="#e.${esc(e.id)}"><span>${esc(e.title)}</span><span class="mono">${esc(e.precision === 'year' ? '~' + calDiff(e.start, a).y + 'y' : fmtPlain(e.start, a, 'd'))}</span></a>`).join('')}</div>`)}`;
+}
+function viewSixty() {
+  const t = now(), W = { minute: MS.m, hour: MS.h, day: MS.d, week: 7 * MS.d }[S.sixty];
+  const evs = visible().filter(e => e.kind === 'countdown' && e.precision !== 'day' && e.precision !== 'month' && e.precision !== 'year' && e.start > t && e.start <= t + W).sort(byStart);
+  const dayEvs = S.sixty !== 'minute' && S.sixty !== 'hour' ? visible().filter(e => e.precision === 'day' && e.kind === 'countdown' && e.start > t && e.start <= t + W).sort(byStart) : [];
+  const ms = milestones(t).filter(m => m.at <= t + W);
+  const nextAny = upcoming(t).find(e => e.precision !== 'day' && e.start > t);
+  return `<div class="feed-head"><h1>You have 60 seconds</h1><p>The most interesting things starting soon. Pick how far ahead to look.</p></div>
+  <div class="chips">${['minute', 'hour', 'day', 'week'].map(w => `<button class="chip ${S.sixty === w ? 'on' : ''}" data-sixty="${w}">Next ${w}</button>`).join('')}</div>
+  ${evs.length || ms.length || dayEvs.length ? list([...evs, ...dayEvs]) + (ms.length ? section('Milestones in this window', '', `<div class="list">${ms.map(msRow).join('')}</div>`) : '')
+    : `<p class="empty-state">Nothing tracked starts in the next ${S.sixty}. The next timed event is:</p>${nextAny ? list([nextAny]) : ''}`}`;
+}
+function viewSaved() {
+  const favs = S.prefs.favs.map(id => S.byId.get(id)).filter(Boolean);
+  const cats = [...new Set(S.events.map(e => e.category))].sort();
+  const zones = (() => { try { return Intl.supportedValuesOf('timeZone'); } catch { return [userTzDefault, 'UTC', 'Europe/Tallinn', 'Europe/London', 'America/New_York', 'Asia/Tokyo']; } })();
+  return `<div class="feed-head"><h1>Saved &amp; settings</h1><p>Kept in this browser only. No account needed.</p></div>
+  ${section('Saved events', '', list(favs, 'Tap the star on any event to save it here.'))}
+  ${section('Following', 'Events matching these words appear in your watchlist on the home page.', `<form id="followForm" class="inline-form"><label for="followIn" class="sr">Follow a topic</label><input id="followIn" placeholder="A person, city, country, venue or topic" maxlength="40"><button class="btn">Follow</button></form><div class="chips">${S.prefs.follows.map(f => `<button class="chip on" data-unfollow="${esc(f)}">${esc(f)} ×</button>`).join('') || '<span class="muted">Not following anything yet.</span>'}</div>
+    <div class="chips">${cats.map(c => `<button class="chip ${S.prefs.follows.includes(c.toLowerCase()) ? 'on' : ''}" data-followcat="${esc(c)}">Follow ${esc(c)}</button>`).join('')}</div>`)}
+  ${section('Display', '', `<div class="settings">
+    <label>Time format<select id="setH12">${opt('24', S.prefs.h12 ? '12' : '24', '24-hour')}${opt('12', S.prefs.h12 ? '12' : '24', '12-hour')}</select></label>
+    <label>Time zone<select id="setTz">${zones.map(z => opt(z, S.prefs.tz)).join('')}</select></label>
+    <label>Alerts for saved events<select id="setNotify">${opt('start', S.prefs.notify, 'When they start')}${opt('10min', S.prefs.notify, '10 minutes before and at start')}${opt('off', S.prefs.notify, 'Off')}</select></label>
+  </div><p class="muted small">Alerts appear on this page while it is open. System notifications are not available inside a hosted page.</p>`)}
+  ${section('Hidden categories', 'Hidden categories disappear from every list.', `<div class="chips">${cats.map(c => `<button class="chip ${S.prefs.hidden.includes(c) ? 'on' : ''}" data-hide="${esc(c)}">${S.prefs.hidden.includes(c) ? 'Hidden: ' : ''}${esc(c)}</button>`).join('')}</div>`)}`;
+}
+function viewSubmit() {
+  const zones = (() => { try { return Intl.supportedValuesOf('timeZone'); } catch { return [userTzDefault, 'UTC']; } })();
+  const cats = ['Everyday', 'Music & Entertainment', 'Sports', 'People & Culture', 'Politics', 'Science & Space', 'Business & Tech', 'Weather & Nature', 'Transport & Infrastructure', 'Internet & Digital'];
+  const mine = S.myId ? S.submissions.filter(s => s.by === S.myId) : [];
+  const canWrite = S.db && S.canWrite !== false;
+  return `<div class="feed-head"><h1>Submit an event</h1><p>Local festivals, a venue's next show, a community livestream. Submissions are checked by a moderator before they appear, and are labelled COMMUNITY SUBMITTED unless the source confirms them.</p></div>
+  ${!S.db ? '<p class="notice">Submissions need a signed-in viewer with access to this page\'s shared data. You can still explore everything else.</p>' : ''}
+  ${S.db && S.canWrite === false ? '<p class="notice">Your access to this page is view-only, so you can\'t submit events.</p>' : ''}
+  <form id="submitForm" class="form" ${canWrite ? '' : 'inert'}>
+    <label>Event title<input id="s-title" required minlength="3" maxlength="120" placeholder="Tallinn Christmas Market opens"></label>
+    <label>Type<select id="s-kind"><option value="countdown">Starts in the future (count down)</option><option value="elapsed">Already started (count up)</option></select></label>
+    <label>Category<select id="s-cat">${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>
+    <div class="row2"><label>Date<input id="s-date" type="date" required></label><label>Start time (optional)<input id="s-time" type="time"></label></div>
+    <label>Time zone<select id="s-tz">${zones.map(z => opt(z, S.prefs.tz)).join('')}</select></label>
+    <div class="row2"><label>City<input id="s-city" maxlength="60"></label><label>Country<input id="s-country" maxlength="60"></label></div>
+    <label>Source link (official page, ticket page, announcement)<input id="s-src" type="url" placeholder="https://"></label>
+    <label>Description<textarea id="s-desc" maxlength="600" rows="3"></textarea></label>
+    <button class="btn" ${canWrite ? '' : 'disabled'}>Send for review</button><span id="s-msg" role="status"></span>
+  </form>
+  ${mine.length ? section('Your submissions', '', `<ul class="subs">${mine.map(s => `<li><strong>${esc(s.title)}</strong> <span class="muted">${esc(s.date)}</span> · ${esc((S.moderation[s.id] || {}).decision || 'awaiting review')}</li>`).join('')}</ul>`) : ''}`;
+}
+function viewAdmin() {
+  const t = now(), evs = S.events;
+  const counts = { up: 0, live: 0, ongoing: 0, done: 0 };
+  for (const e of evs) { const g = grp(e, t); if (g === 'upcoming') counts.up++; else if (g === 'live') counts.live++; else if (g === 'ongoing') counts.ongoing++; else counts.done++; }
+  const pending = S.submissions.filter(s => !S.moderation[s.id]);
+  const recent = evs.filter(e => !e.computed && t - e.lastUpdated < 7 * MS.d).length;
+  const staleEv = evs.filter(e => !e.computed && t - e.lastVerified > 90 * MS.d);
+  const failed = ADAPTERS.filter(a => (S.health[a.id] || {}).status === 'error').length;
+  const notConf = EXTERNAL_ADAPTERS.length;
+  const tests = runSelfTests();
+  const canAdmin = S.canAdmin;
+  const metric = (n, l, sub = '') => `<div class="metric"><div class="m-n">${n}</div><div class="m-l">${l}</div>${sub ? `<div class="m-s">${sub}</div>` : ''}</div>`;
+  const evOpts = evs.filter(e => !e.computed || e.community).sort((a, b) => a.title.localeCompare(b.title)).map(e => `<option value="${esc(e.id)}">${esc(e.title)}</option>`).join('');
+  return `<div class="feed-head"><h1>Admin</h1><p>Live numbers from the running pipeline. ${canAdmin ? 'You can edit.' : 'Read-only: editing tools need Editor access to this page.'}</p></div>
+  <div class="metrics">${metric(evs.length, 'Events in database')}${metric(counts.up, 'Upcoming')}${metric(counts.ongoing, 'Ongoing')}${metric(counts.live, 'Happening now')}${metric(counts.done, 'Completed / archived')}
+  ${metric(pending.length, 'Awaiting verification', 'community queue')}${metric(failed, 'Failed integrations', notConf + ' not configured')}${metric(S.dupes.length, 'Duplicates detected', 'last ingest')}${metric(recent, 'Updated in 7 days', 'non-computed')}${metric(staleEv.length, 'Stale records', 'not re-verified in 90 days')}</div>
+  ${section('Sources', `Last ingest ${esc(ago(S.lastIngest))}. Adapters re-run every 10 minutes and when you return to the tab.`, `<div class="tablewrap"><table class="tbl"><thead><tr><th>Source</th><th>Layer</th><th>Data</th><th>Fetch</th><th>Every</th><th>Status</th><th>Items</th><th>Last run</th><th>Reliability</th>${canAdmin ? '<th></th>' : ''}</tr></thead><tbody>
+    ${ADAPTERS.map(a => { const h = S.health[a.id] || {}; const stale = h.lastRun && t - h.lastRun > a.staleAfter; return `<tr><td><strong>${esc(a.name)}</strong><div class="muted small">${esc(a.normalize)} · attribution: ${esc(a.attribution)} · rate limit: ${esc(a.rateLimit)}</div></td><td>${a.layer}</td><td>${esc(a.dataType)}</td><td>${esc(a.fetch)}</td><td>${esc(a.frequency)}</td><td><span class="hs hs-${esc(h.status || 'none')}">${esc(h.status || '—')}${stale ? ' · stale' : ''}</span>${h.error ? `<div class="small">${esc(h.error)}</div>` : ''}</td><td class="mono">${h.count ?? '—'}</td><td class="mono">${h.lastRun ? esc(fmtTime(h.lastRun, S.prefs.tz, { second: '2-digit' })) : '—'}</td><td>${esc(a.reliability)}</td>${canAdmin ? `<td><button class="btn sm ghost" data-toggle-adapter="${esc(a.id)}">${S.config.disabled[a.id] ? 'Enable' : 'Disable'}</button></td>` : ''}</tr>`; }).join('')}
+    ${EXTERNAL_ADAPTERS.map(a => `<tr class="nc"><td><strong>${esc(a.name)}</strong><div class="muted small">${esc(a.normalize)} · attribution: ${esc(a.attribution)} · rate limit: ${esc(a.rateLimit)}</div></td><td>${a.layer}</td><td>${esc(a.dataType)}</td><td class="small mono">${esc(a.fetch)}</td><td>${esc(a.frequency)}</td><td><span class="hs hs-nc">not configured</span><div class="small">${esc(a.needs)}</div></td><td>—</td><td>—</td><td>${esc(a.reliability)}</td>${canAdmin ? '<td></td>' : ''}</tr>`).join('')}
+  </tbody></table></div>`)}
+  ${section('Moderation queue', pending.length ? '' : 'No submissions waiting.', `<div class="queue">${pending.map(s => `<div class="q-item"><div><strong>${esc(s.title)}</strong> <span class="muted">${esc(s.category)} · ${esc(s.date)} ${esc(s.time || '')} ${esc(s.tz)} · ${esc([s.city, s.country].filter(Boolean).join(', '))}</span><p class="small">${esc(s.description || '')}</p>${s.sourceUrl ? `<a class="small" href="${esc(s.sourceUrl)}" target="_blank" rel="noopener">${esc(s.sourceUrl)}</a>` : '<span class="small muted">No source given</span>'}</div>${canAdmin ? `<div class="q-act"><button class="btn sm" data-mod="${esc(s.id)}" data-dec="approved" data-ver="1">Approve as verified</button><button class="btn sm ghost" data-mod="${esc(s.id)}" data-dec="approved" data-ver="0">Approve as community</button><button class="btn sm ghost" data-mod="${esc(s.id)}" data-dec="rejected">Reject</button></div>` : ''}</div>`).join('')}</div>`)}
+  ${canAdmin ? section('Edit events', 'Changes are stored in the shared database and applied on the next ingest.', `
+    <div class="tools">
+      <form id="adm-resched" class="form small-form"><h3>Cancel or reschedule</h3><label>Event<select id="ar-ev">${evOpts}</select></label><label>Action<select id="ar-type"><option value="reschedule">Reschedule</option><option value="postpone">Postpone (date unknown)</option><option value="cancel">Cancel</option><option value="restore">Remove override</option></select></label><div class="row2"><label>New date<input id="ar-date" type="date"></label><label>New time (blank = date only)<input id="ar-time" type="time"></label></div><label>Note<input id="ar-note" maxlength="200"></label><button class="btn">Apply</button><span class="msg" id="ar-msg"></span></form>
+      <form id="adm-merge" class="form small-form"><h3>Merge duplicates</h3><label>Duplicate (hidden)<select id="am-from">${evOpts}</select></label><label>Keep<select id="am-into">${evOpts}</select></label><button class="btn">Merge</button><span class="msg" id="am-msg"></span></form>
+      <form id="adm-create" class="form small-form"><h3>Create event</h3><label>Title<input id="ac-title" required minlength="3" maxlength="120"></label><label>Kind<select id="ac-kind"><option value="countdown">Count down</option><option value="elapsed">Count up</option></select></label><div class="row2"><label>Date<input id="ac-date" type="date" required></label><label>Time<input id="ac-time" type="time"></label></div><label>Time zone<input id="ac-tz" value="${esc(S.prefs.tz)}"></label><label>Source URL<input id="ac-src" type="url" required></label><button class="btn">Create as verified</button><span class="msg" id="ac-msg"></span></form>
+    </div>
+    ${Object.keys(S.overrides).length ? `<h3>Active overrides</h3><ul class="subs">${Object.entries(S.overrides).map(([k, o]) => `<li><span class="mono">${esc(o.type)}</span> ${esc((S.byId.get(o.eventId) || { title: o.eventId }).title)} ${o.into ? '→ ' + esc(o.into) : ''} <button class="btn sm ghost" data-rm-ovr="${esc(k)}">Remove</button></li>`).join('')}</ul>` : ''}`) : ''}
+  ${section('Duplicates &amp; conflicts', '', S.dupes.length || S.conflicts.length ? `<ul class="subs">${S.dupes.map(d => `<li>Dropped <span class="mono">${esc(d.dropped)}</span> (same title and day as <span class="mono">${esc(d.kept)}</span>)</li>`).join('')}${S.conflicts.map(([a, b]) => `<li>Sources disagree: <span class="mono">${esc(a)}</span> vs <span class="mono">${esc(b)}</span></li>`).join('')}</ul>` : '<p class="muted">None in the last ingest.</p>')}
+  ${section('Stale records', 'Seed events whose sources have not been re-checked for 90 days.', staleEv.length ? `<div class="mini">${staleEv.map(e => `<a href="#e.${esc(e.id)}"><span>${esc(e.title)}</span><span class="mono">${esc(fmtDate(e.lastVerified, 'UTC'))}</span></a>`).join('')}</div>` : '<p class="muted">None.</p>')}
+  ${section('Time engine self-tests', `${tests.filter(x => x.ok).length} of ${tests.length} passing, run in this browser just now.`, `<ul class="tests">${tests.map(x => `<li class="${x.ok ? 'ok' : 'bad'}"><span class="mono">${x.ok ? 'PASS' : 'FAIL'}</span> ${esc(x.name)} <span class="muted small">${esc(x.detail)}</span></li>`).join('')}</ul>`)}
+  ${section('Ingestion log', '', `<div class="tablewrap"><table class="tbl log"><tbody>${S.logs.slice(0, 80).map(l => `<tr><td class="mono">${esc(fmtTime(l.t, S.prefs.tz, { second: '2-digit' }))}</td><td><span class="hs hs-${l.level === 'error' ? 'error' : l.level === 'warn' ? 'nc' : 'ok'}">${esc(l.level)}</span></td><td class="mono">${esc(l.adapter)}</td><td>${esc(l.msg)}</td></tr>`).join('')}</tbody></table></div>`)}
+  ${section('Clock source', '', `<p class="small">Timers use this device's clock. A hosted page cannot reach a time server, so no offset is applied. In a server deployment the client compares <span class="mono">Date</span> headers on each API response and corrects drift.</p>`)}`;
+}
+function runSelfTests() {
+  const T = [];
+  const ok = (name, cond, detail = '') => T.push({ name, ok: !!cond, detail });
+  ok('Duration under a day', fmtPlain(0, 5 * MS.h + 21 * MS.m + 9e3) === '05h 21m 09s', fmtPlain(0, 5 * MS.h + 21 * MS.m + 9e3));
+  ok('Duration in days', fmtPlain(0, 12 * MS.d + 5 * MS.h + 21 * MS.m + 9e3) === '12d 05h 21m 09s');
+  ok('Duration in years is calendar-aware', fmtPlain(Date.UTC(2000, 0, 1), Date.UTC(2018, 4, 23, 5, 21, 9)) === '18y 142d 05h 21m 09s', fmtPlain(Date.UTC(2000, 0, 1), Date.UTC(2018, 4, 23, 5, 21, 9)));
+  ok('Leap day + 4 years = 4y 0d', fmtPlain(Date.UTC(2024, 1, 29), Date.UTC(2028, 1, 29), 'd') === '4y 0d');
+  ok('Leap year rules', isLeap(2000) && !isLeap(1900) && isLeap(2028) && !isLeap(2027));
+  ok('DST: Tallinn noon is UTC+3 in summer', new Date(zonedToUtc(2026, 7, 1, 12, 0, 0, 'Europe/Tallinn')).getUTCHours() === 9);
+  ok('DST: Tallinn noon is UTC+2 in winter', new Date(zonedToUtc(2026, 12, 1, 12, 0, 0, 'Europe/Tallinn')).getUTCHours() === 10);
+  ok('DST: the 25-hour day (25 Oct 2026, Tallinn)', zonedToUtc(2026, 10, 26, 0, 0, 0, 'Europe/Tallinn') - zonedToUtc(2026, 10, 25, 0, 0, 0, 'Europe/Tallinn') === 25 * MS.h);
+  ok('Calendar boundary: 31 Dec + 1 day', addDaysYMD(2026, 12, 31, 1).join('-') === '2027-1-1');
+  const fm = moonPhasesAround(Date.UTC(2024, 0, 20), true).next;
+  ok('Full moon 25 Jan 2024 17:54 UTC (±3 min)', Math.abs(fm - Date.UTC(2024, 0, 25, 17, 54)) < 3 * MS.m, new Date(fm).toISOString());
+  const sol = seasonUtc(2024, 3);
+  ok('December solstice 2024 09:20 UTC (±3 min)', Math.abs(sol - Date.UTC(2024, 11, 21, 9, 20)) < 3 * MS.m, new Date(sol).toISOString());
+  ok('Easter 2027 = 28 March', easter(2027).join('-') === '3-28');
+  const cd = { kind: 'countdown', start: 1000, precision: 'second', durationMs: 0 };
+  ok('Countdown never goes negative: switches to completed', eventStatus(cd, 999) === 'upcoming' && eventStatus(cd, 1001) === 'completed');
+  ok('Countdown with duration becomes live at zero', eventStatus({ kind: 'countdown', start: 1000, precision: 'second', durationMs: 5000 }, 2000) === 'live');
+  ok('Elapsed with end keeps final duration', eventStatus({ kind: 'elapsed', start: 0, end: 10 }, 20) === 'ended');
+  ok('Cancelled overrides time', eventStatus({ kind: 'countdown', start: 0, override: 'cancelled' }, -5) === 'cancelled');
+  ok('Uncertain dates never get a countdown', eventStatus({ kind: 'countdown', start: 9e15, precision: 'year' }, 0) === 'unconfirmed');
+  const q = parseQuery('What happens in the next 10 minutes?', 0);
+  ok('Search understands "next 10 minutes"', Array.isArray(q.window) && q.window[1] === 10 * MS.m);
+  ok('Search understands "one hour ago"', parseQuery('What started exactly one hour ago?', 0).startedAgo === MS.h);
+  return T;
+}
+
+/* ================= shell, routing, ticking ================= */
+const NAV = [['home', 'Home'], ['upnext', 'Up next'], ['inprogress', 'In progress'], ['explore', 'Explore'], ['timeline', 'Timeline'], ['sixty', '60 seconds'], ['saved', 'Saved'], ['submit', 'Submit'], ['admin', 'Admin']];
+function route() { const h = (location.hash || '#home').slice(1); return h.startsWith('e.') ? { v: 'event', id: h.slice(2) } : { v: NAV.some(n => n[0] === h) ? h : 'home' }; }
+let lastRouteKey = '';
+function render(keepScroll = false) {
+  const r = route(), key = r.v + (r.id || '');
+  const main = $('#main'), y = window.scrollY;
+  const html = { home: viewHome, upnext: () => viewFeed('countdown'), inprogress: () => viewFeed('elapsed'), explore: viewExplore, timeline: viewTimeline, sixty: viewSixty, saved: viewSaved, submit: viewSubmit, admin: viewAdmin, event: () => viewDetail(r.id) }[r.v]();
+  main.innerHTML = html;
+  document.querySelectorAll('[data-nav]').forEach(a => a.setAttribute('aria-current', a.dataset.nav === r.v ? 'page' : 'false'));
+  if (key !== lastRouteKey && !keepScroll) { window.scrollTo(0, 0); main.focus({ preventScroll: true }); }
+  else if (keepScroll) window.scrollTo(0, y);
+  lastRouteKey = key;
+  tick(true);
+}
+function scheduleRerender() {
+  if (S.rerenderPending) return; S.rerenderPending = true;
+  setTimeout(() => {
+    S.rerenderPending = false;
+    const a = document.activeElement;
+    if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && $('#main').contains(a)) { setTimeout(scheduleRerender, 4000); return; }
+    render(true);
+  }, 250);
+}
+function toast(msg, href) {
+  const box = $('#toasts'), el = document.createElement('div');
+  el.className = 'toast'; el.innerHTML = href ? `<a href="${esc(href)}">${esc(msg)}</a>` : esc(msg);
+  box.appendChild(el); setTimeout(() => el.classList.add('out'), 6000); setTimeout(() => el.remove(), 6600);
+}
+function tick(fromRender) {
+  const t = now();
+  const uc = new Date(t);
+  $('#utcClock').textContent = `${pad(uc.getUTCHours())}:${pad(uc.getUTCMinutes())}:${pad(uc.getUTCSeconds())}`;
+  $('#utcDate').textContent = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(uc);
+  $('#localClock').textContent = 'Your time ' + fmtTime(t, S.prefs.tz, { second: '2-digit' }) + ' ' + tzAbbr(t, S.prefs.tz);
+  const ru = $('#ruler'); if (ru) { if (!ru.children.length) ru.innerHTML = '<i></i>'.repeat(60); const sec = uc.getUTCSeconds(); [...ru.children].forEach((el, i) => el.className = i < sec ? 'past' : i === sec ? 'cur' : ''); }
+  document.querySelectorAll('[data-nowclock]').forEach(el => el.textContent = fmtTime(t, S.prefs.tz, { second: '2-digit' }));
+  document.querySelectorAll('[data-clk]').forEach(el => {
+    const id = el.dataset.clk;
+    if (id.startsWith('ms:')) { const m = MS_REG.get(id); if (m) el.innerHTML = m.at > t ? segHTML(fmtParts(calDiff(t, m.at))) : '<span class="w">Reached</span>'; return; }
+    const e = S.byId.get(id); if (!e) return;
+    const c = clock(e, t); if (el.innerHTML !== c.html) el.innerHTML = c.html;
+  });
+  document.querySelectorAll('[data-note]').forEach(el => { const e = S.byId.get(el.dataset.note); if (e) { const n = clock(e, t).note; if (el.textContent !== n) el.textContent = n; } });
+  document.querySelectorAll('[data-secs]').forEach(el => { const e = S.byId.get(el.dataset.secs); if (e) el.textContent = Math.floor(((e.end && e.end < t ? e.end : t) - e.start) / 1000).toLocaleString('en-US'); });
+  if (fromRender) return;
+  // status transitions (event started / ended / became today) without reloading
+  let changed = false;
+  for (const e of S.events) {
+    const st = eventStatus(e, t), prev = S.lastStatus.get(e.id);
+    if (prev && prev !== st) {
+      changed = true;
+      log('info', 'engine', `"${e.title}" changed from ${prev} to ${st}`);
+      if (S.prefs.favs.includes(e.id) && S.prefs.notify !== 'off') toast(`${e.title}: ${STATUS_LABEL[st].toLowerCase()}`, '#e.' + e.id);
+      else if (st === 'live' && e.popularity >= 2 && !e.computed) toast('Just started: ' + e.title, '#e.' + e.id);
+    }
+    S.lastStatus.set(e.id, st);
+    if (S.prefs.notify === '10min' && S.prefs.favs.includes(e.id) && st === 'upcoming' && e.start - t <= 10 * MS.m && e.start - t > 9 * MS.m && !S.notified.has(e.id)) { S.notified.add(e.id); toast(`${e.title} starts in 10 minutes`, '#e.' + e.id); }
+  }
+  if (changed) scheduleRerender();
+  if (t - S.lastIngest > 10 * MS.m) { ingest('scheduled re-check'); scheduleRerender(); }
+}
+function loop() { tick(); setTimeout(loop, 1000 - (now() % 1000) + 8); }
+function randomEvent() {
+  const t = now();
+  const pool = visible().filter(e => grp(e, t) !== 'completed' && e.id !== route().id && e.category !== 'Time' && e.sub !== 'Sun');
+  const w = pool.map(e => (e.strange ? 3 : 1) + e.popularity);
+  let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < pool.length; i++) { r -= w[i]; if (r <= 0) return pool[i]; }
+  return pool[0];
+}
+
+/* ================= events ================= */
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('button, a'); if (!b) return;
+  const d = b.dataset;
+  if (d.fav) { ev.preventDefault(); const i = S.prefs.favs.indexOf(d.fav); if (i >= 0) S.prefs.favs.splice(i, 1); else S.prefs.favs.push(d.fav); savePrefs(); render(true); toast(i >= 0 ? 'Removed from saved' : 'Saved. You\'ll get an alert here when it starts.'); return; }
+  if (d.random !== undefined) { const e = randomEvent(); if (e) location.hash = 'e.' + e.id; return; }
+  if (d.share) { const url = (SHARE_BASE || location.href.split('#')[0]) + '#e.' + d.share; const box = $('#sharebox'), inp = $('#shareUrl'); box.hidden = false; inp.value = url; const done = m => $('#shareMsg').textContent = m; try { navigator.clipboard.writeText(url).then(() => done('Link copied'), () => { inp.select(); done('Select and copy the link'); }); } catch { inp.select(); done('Select and copy the link'); } return; }
+  if (d.feedcat) { S.feedCat = d.feedcat; render(true); return; }
+  if (d.q) { S.query = d.q; S.filters.sort = 'relevance'; render(true); return; }
+  if (d.cat) { S.filters.category = S.filters.category === d.cat ? 'all' : d.cat; render(true); return; }
+  if (d.catLink) { S.filters.category = d.catLink; S.query = ''; return; }
+  if (d.jump !== undefined) { S.timelineDay = Math.max(-730, Math.min(1460, S.timelineDay + +d.jump)); if (+d.jump === 0) S.timelineDay = 0; render(true); return; }
+  if (d.sixty) { S.sixty = d.sixty; render(true); return; }
+  if (d.unfollow) { S.prefs.follows = S.prefs.follows.filter(f => f !== d.unfollow); savePrefs(); render(true); return; }
+  if (d.followcat) { const k = d.followcat.toLowerCase(); S.prefs.follows = S.prefs.follows.includes(k) ? S.prefs.follows.filter(f => f !== k) : [...S.prefs.follows, k]; savePrefs(); render(true); return; }
+  if (d.hide) { S.prefs.hidden = S.prefs.hidden.includes(d.hide) ? S.prefs.hidden.filter(h => h !== d.hide) : [...S.prefs.hidden, d.hide]; savePrefs(); render(true); return; }
+  if (d.mod) { moderate(d.mod, d.dec, d.ver === '1'); return; }
+  if (d.toggleAdapter) { toggleAdapter(d.toggleAdapter); return; }
+  if (d.rmOvr) { if (S.db) S.db.doc('overrides/' + d.rmOvr).delete().catch(e => toast('Could not remove: ' + e.message)); return; }
+  if (b.id === 'f-reset') { S.filters = { status: 'all', category: 'all', country: 'all', city: 'all', ver: 'all', sort: 'relevance', from: '', to: '', hFrom: '', hTo: '' }; S.query = ''; render(true); return; }
+});
+document.addEventListener('change', ev => {
+  const el = ev.target;
+  if (el.id && el.id.startsWith('f-')) { S.filters[el.id.slice(2)] = el.value; render(true); return; }
+  if (el.id === 'setH12') { S.prefs.h12 = el.value === '12'; savePrefs(); render(true); }
+  if (el.id === 'setTz') { S.prefs.tz = el.value; savePrefs(); ingest('time zone changed'); render(true); }
+  if (el.id === 'setNotify') { S.prefs.notify = el.value; savePrefs(); }
+  if (el.id === 'tlSpan') { S.timelineSpan = +el.value; render(true); }
+});
+let tlTimer;
+document.addEventListener('input', ev => { if (ev.target.id === 'tlRange') { S.timelineDay = +ev.target.value; clearTimeout(tlTimer); tlTimer = setTimeout(() => { render(true); const r = $('#tlRange'); if (r) r.focus(); }, 60); } });
+document.addEventListener('submit', ev => {
+  const f = ev.target; ev.preventDefault();
+  if (f.id === 'topSearch') { S.query = $('#q').value; S.filters.sort = 'relevance'; if (location.hash !== '#explore') location.hash = 'explore'; else render(true); return; }
+  if (f.id === 'exploreForm') { S.query = $('#q2').value; render(true); return; }
+  if (f.id === 'followForm') { const v = $('#followIn').value.trim().toLowerCase(); if (v && !S.prefs.follows.includes(v)) { S.prefs.follows.push(v); savePrefs(); } render(true); return; }
+  if (f.id === 'submitForm') { submitEvent(); return; }
+  if (f.id === 'adm-resched') { adminReschedule(); return; }
+  if (f.id === 'adm-merge') { adminMerge(); return; }
+  if (f.id === 'adm-create') { adminCreate(); return; }
+});
+window.addEventListener('hashchange', () => render());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (now() - S.lastIngest > 5 * MS.m) ingest('tab resumed'); tick(); scheduleRerender(); } });
+
+/* ================= shared database ================= */
+function validUrl(u) { try { const x = new URL(u); return x.protocol === 'https:' || x.protocol === 'http:'; } catch { return false; } }
+async function submitEvent() {
+  const msg = $('#s-msg'), v = id => ($('#' + id).value || '').trim();
+  if (!S.db) { msg.textContent = 'Shared data is not available in this view.'; return; }
+  if (now() - S.lastSubmit < 30e3) { msg.textContent = 'Please wait 30 seconds between submissions.'; return; }
+  const title = v('s-title'), date = v('s-date'), time = v('s-time'), src = v('s-src');
+  if (title.length < 3) { msg.textContent = 'Give the event a title of at least 3 characters.'; return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { msg.textContent = 'Choose a date.'; return; }
+  const [y] = date.split('-').map(Number); const yNow = new Date(now()).getUTCFullYear();
+  if (y < 1000 || y > yNow + 50) { msg.textContent = 'Dates must be between the year 1000 and 50 years from now.'; return; }
+  if (src && !validUrl(src)) { msg.textContent = 'The source link must start with https:// or http://'; return; }
+  const doc = { title, kind: v('s-kind'), category: v('s-cat'), date, time, tz: v('s-tz'), city: v('s-city'), country: v('s-country'), sourceUrl: src, description: v('s-desc'), createdAt: now(), by: S.myId || null };
+  msg.textContent = 'Sending…';
+  try { await S.db.collection('submissions').add(doc); S.lastSubmit = now(); msg.textContent = 'Sent. A moderator will review it.'; $('#submitForm').reset(); }
+  catch (e) { msg.textContent = e.code === 'invalid_argument' ? 'Your access level doesn\'t allow submissions.' : e.code === 'quota_exceeded' ? 'The submission store is full. Ask the page owner to clear old entries.' : 'Could not send: ' + e.message; if (e.code === 'invalid_argument') S.canWrite = false; }
+}
+async function moderate(id, decision, verified) {
+  try { await S.db.doc('moderation/' + id).set({ decision, verified: !!verified, at: now(), by: S.myId || null }); toast(decision === 'approved' ? 'Approved' : 'Rejected'); }
+  catch (e) { toast('Could not save decision: ' + e.message); }
+}
+async function toggleAdapter(id) {
+  const disabled = Object.assign({}, S.config.disabled); if (disabled[id]) delete disabled[id]; else disabled[id] = true;
+  try { await S.db.doc('config/adapters').set({ disabled }); } catch (e) { toast('Could not save: ' + e.message); }
+}
+async function adminReschedule() {
+  const ev = $('#ar-ev').value, type = $('#ar-type').value, date = $('#ar-date').value, time = $('#ar-time').value, note = $('#ar-note').value.trim(), msg = $('#ar-msg');
+  const e = S.byId.get(ev); if (!e) return;
+  const key = 'o-' + ev.replace(/[^a-zA-Z0-9_-]/g, '_');
+  try {
+    if (type === 'restore') { await S.db.doc('overrides/' + key).delete(); msg.textContent = 'Override removed.'; return; }
+    const o = { eventId: ev, type, note, at: now(), by: S.myId || null };
+    if (type === 'reschedule') {
+      if (!date) { msg.textContent = 'Choose the new date.'; return; }
+      const [y, m, d] = date.split('-').map(Number), [hh, mi] = time ? time.split(':').map(Number) : [0, 0];
+      o.newStart = zonedToUtc(y, m, d, hh, mi, 0, e.tz || 'UTC'); o.precision = time ? 'minute' : 'day';
+    }
+    await S.db.doc('overrides/' + key).set(o); msg.textContent = 'Saved.';
+  } catch (err) { msg.textContent = 'Could not save: ' + err.message; }
+}
+async function adminMerge() {
+  const from = $('#am-from').value, into = $('#am-into').value, msg = $('#am-msg');
+  if (from === into) { msg.textContent = 'Pick two different events.'; return; }
+  try { await S.db.doc('overrides/m-' + from.replace(/[^a-zA-Z0-9_-]/g, '_')).set({ eventId: from, type: 'merge', into, at: now(), by: S.myId || null }); msg.textContent = 'Merged.'; } catch (e) { msg.textContent = 'Could not merge: ' + e.message; }
+}
+async function adminCreate() {
+  const v = id => ($('#' + id).value || '').trim(), msg = $('#ac-msg');
+  const src = v('ac-src'); if (!validUrl(src)) { msg.textContent = 'A source link is required.'; return; }
+  try { new Intl.DateTimeFormat('en', { timeZone: v('ac-tz') }); } catch { msg.textContent = 'Unknown time zone. Use an IANA name like Europe/Tallinn.'; return; }
+  try {
+    const ref = await S.db.collection('submissions').add({ title: v('ac-title'), kind: v('ac-kind'), category: 'Everyday', date: v('ac-date'), time: v('ac-time'), tz: v('ac-tz'), city: '', country: '', sourceUrl: src, description: '', createdAt: now(), by: S.myId || null, admin: true });
+    await S.db.doc('moderation/' + ref.id).set({ decision: 'approved', verified: true, at: now(), by: S.myId || null });
+    msg.textContent = 'Created.';
+  } catch (e) { msg.textContent = 'Could not create: ' + e.message; }
+}
+async function connectShared() {
+  if (!window.claude || !window.claude.use) { log('warn', 'community', 'Shared data unavailable in this view; community layer off.'); return; }
+  try {
+    const [db, user] = await Promise.all([claude.use('db'), claude.use('user')]);
+    S.user = user;
+    if (user) { S.canAdmin = await user.canEdit(); S.canWrite = await user.can('data.write'); S.myId = await user.id(); }
+    if (!db) { log('warn', 'community', 'Shared data unavailable (signed out or not granted).'); scheduleRerender(); return; }
+    S.db = db;
+    const refresh = () => { ingest('shared data changed'); scheduleRerender(); };
+    db.collection('submissions').onSnapshot(s => { S.submissions = s.docs.map(d => Object.assign({ id: d.id }, d.data())); refresh(); }, e => log('error', 'community', 'Submissions feed stopped: ' + e.code));
+    db.collection('moderation').onSnapshot(s => { S.moderation = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); refresh(); }, e => log('error', 'community', 'Moderation feed stopped: ' + e.code));
+    db.collection('overrides').onSnapshot(s => { S.overrides = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); refresh(); }, e => log('error', 'admin', 'Overrides feed stopped: ' + e.code));
+    db.doc('config/adapters').onSnapshot(s => { S.config = { disabled: (s.exists && s.data().disabled) || {} }; refresh(); }, () => { });
+    log('info', 'community', 'Connected to shared database.');
+  } catch (e) { log('error', 'community', 'Could not connect shared data: ' + e.message); }
+}
+
+/* ================= boot ================= */
+ingest('page load');
+for (const e of S.events) S.lastStatus.set(e.id, eventStatus(e, now()));
+render();
+loop();
+connectShared();
+</script>
+
+</body>
+</html>
